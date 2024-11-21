@@ -50,7 +50,7 @@ Kd_js = np.diag([10,10,10,10])    # Derivative gains for joint space control
 
 """ Trajectory tracking """
 # trajectory 
-data = np.load('../../my_DMP'+'/'+str('example')+'.npz')
+data = np.load('../data/'+'/'+str('example')+'.npz')
 x_des = data['demo'].T  # (2,611)
 x_des /= 350 # convert data from mm to m
 
