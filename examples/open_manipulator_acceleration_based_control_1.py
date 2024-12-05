@@ -7,11 +7,9 @@ import scipy.interpolate
 import scipy.linalg
 from scipy.signal import savgol_filter
 
-# Add the parent directory 'PhD' to the system path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 # from my_DMP.dmp import DMP
-from mathematical_model import Robot_Dynamics
+from robot_model import Robot_Dynamics
+from controllers import Controller
 
 
 # --------------------------------------------- Open Manipulator -------------------------------------------- #
@@ -37,6 +35,7 @@ MOI_about_body_CG = []  # MOI of the link about COG
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
 robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, file_name="Open_X_manipulator")
+controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
 q = np.array([0.93028432, 1.78183731, -1.8493209, -0.78539816])  # In radian
@@ -93,10 +92,10 @@ for i in range(Xd.shape[1]-1):
     Ex_dot = Xd_dot[:,[i]] - Xe_dot
 
     # Kinematic Control
-    qr, qr_dot, qr_ddot = robot.robot_KM.acceleration_based_control_1(dt, q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Kp_ts, Kd_ts)
+    qr, qr_dot, qr_ddot = controller.acceleration_based_control_1(dt, q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Kp_ts, Kd_ts)
 
     # Feed-forward Control
-    tau = robot.torque_control_1(q, q_dot, qr_dot, qr_ddot, Kd_js)
+    tau = controller.torque_control_1(q, q_dot, qr_dot, qr_ddot, Kd_js)
 
     # Joint space error
     Er = (qr - q).reshape((n, 1)) 

@@ -7,11 +7,9 @@ import scipy.interpolate
 import scipy.linalg
 from scipy.signal import savgol_filter
 
-# Add the parent directory 'PhD' to the system path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 # from my_DMP.dmp import DMP
-from mathematical_model import Robot_Dynamics
+from robot_model import Robot_Dynamics
+from controllers import Controller
 
 
 # --------------------------------------------- Open Manipulator -------------------------------------------- #
@@ -44,6 +42,7 @@ joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
 robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, joint_limits=joint_limits, file_name="Open_X_manipulator")
+controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
 q = np.array([0.93028432, 1.78183731, -1.8493209, -0.78539816])  # In radian
@@ -78,8 +77,8 @@ poly_order = 3  # Adjust based on your data
 Xd_dot = np.array([savgol_filter(Xd[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd.shape[0])])
 
 # Calculate acceleration
-# Xd_ddot = np.array([[0],[0],[0]])   # for impedence_control_TT_1
-Xd_ddot = np.array([savgol_filter(Xd_dot[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd_dot.shape[0])])
+Xd_ddot = np.array([[0],[0],[0]])   # for impedence_control_TT_1
+# Xd_ddot = np.array([savgol_filter(Xd_dot[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd_dot.shape[0])])
 
 # Start plotting tool
 robot.plot_start(dt)
@@ -109,13 +108,12 @@ for i in range(Xd.shape[1]-1):
     Ex_dot = Xe_dot - Xd_dot[:,[i]]
 
     # Feed-forward Control
-    tau = robot.impedence_control_TT_1(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Dd, Kd)
-    # tau = robot.impedence_control_TT_2(q, q_dot, Ex, Ex_dot, Xd_dot[:,[i]], Xd_ddot, Dd, Kd)
+    tau = controller.impedence_control_TT_2(q, q_dot, Ex, Ex_dot, Xd_dot[:,[i]], Xd_ddot, Dd, Kd)
 
     X_cord, Y_cord, Z_cord = robot.robot_KM.FK(q)
 
     robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd, Ex, Ex_dot, external_force)
-
+    
     # Robot Joint acceleration
     q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward", ext_force=external_force)  # forward_int = None / euler_forward / rk4
    

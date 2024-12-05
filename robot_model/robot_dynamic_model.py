@@ -5,12 +5,9 @@ import numpy.linalg as LA
 np.set_printoptions(suppress=True)
 from sympy import *
 
-from dynamic_modelling_methods import Euler_Lagrange
+from dynamic_modelling_methods import Euler_Lagrange, RNEA
 from plotting import RobotPlotter
 from .robot_kinematic_model import Robot_KM
-
-# Add the parent directory 'PhD' to the system path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 
 class Robot_Dynamics:
@@ -33,7 +30,8 @@ class Robot_Dynamics:
 
         self.robot_KM = Robot_KM(self.n, self.alpha, self.a, self.d, self.d_nn)  # Numeric Kinematic Model
 
-        robot_DM = Euler_Lagrange(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model
+        # robot_DM = Euler_Lagrange(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Euler-Lagrange Method
+        robot_DM = RNEA(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Recursiv Netwon-Euler Method
         
         # Check if the file already exists
         if os.path.exists('../models/'+file_name+'.pkl'):
@@ -85,18 +83,18 @@ class Robot_Dynamics:
         A * Y = b
         Y = A^(-1) * b  =>  np.linalg.solve(A, b) 
         """
-        M, C, _, G = self.compute_dynamics(q, q_dot)
+        M, C_vec, _, G = self.compute_dynamics(q, q_dot)  
         
         if ext_force is None:
-            b = tau - (C + G)
+            b = tau - (C_vec + G)
         else:
             J = self.robot_KM.J(q)
             if ext_force.ndim == 1:
                 ext_force = ext_force.reshape((3,1))
-            b = tau - (C + G - J.T @ ext_force)
+            b = tau - (C_vec + G - J.T @ ext_force)
 
         b = b.astype(np.float64)  # Ensure b is float64
-
+        
         q_ddot = np.linalg.solve(M, b).reshape(-1)
 
         if forward_int is None:
@@ -139,7 +137,8 @@ class Robot_Dynamics:
                                                
                                      |  k4_q  |        |        x2 + k3_q_dot      |
             k4 = dt * g(X + k3/2) => |        | = dt * |                           |
-                                     |k4_q_dot|        |f(x1 + k3_q, x2 + k3_q_dot)|  
+                                     |k4_q_do    g = symbols("g")  # gravity
+t|        |f(x1 + k3_q, x2 + k3_q_dot)|  
 
             4) compute next-state vector: X(t+1) = X(t) + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
 
@@ -163,56 +162,7 @@ class Robot_Dynamics:
         else: 
             print("wrong forward_intergral chosen!")
 
-    def M_matrix_task_space(self, M_q, J):
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        return M_x
-
-    def M_C_matrix_task_space(self, M_q, C_q, J, J_dot):
-        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
-        return M_x, C_x 
-
-    def M_G_matrix_task_space(self, M_q, G_q, J):
-        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        G_x = J_inv.T @ G_q
-        return M_x, G_x
-
-    def M_C_G_matrix_task_space(self, M_q, C_q, G_q, J, J_dot):
-        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
-        G_x = J_inv.T @ G_q
-        return M_x, C_x, G_x
-    
-    def free_fall(self, time_frame, q, q_dot, tau=None):
-        # For plotting
-        self.X_plot = np.zeros((len(time_frame)+1, self.n + 2))
-        self.Y_plot = np.zeros((len(time_frame)+1, self.n + 2))
-        self.Z_plot = np.zeros((len(time_frame)+1, self.n + 2))
-
-        self.dt = time_frame[1] - time_frame[0]
-                
-        if tau is None:
-            tau = np.zeros((self.n,1))
-
-        for frame in range(time_frame.shape[0]-1):
-            # Forward Kinematics
-            X_cord, Y_cord, Z_cord = self.robot_KM.FK(q)
-            
-            # Store in memory
-            self.memory(frame, X_cord, Y_cord, Z_cord) 
-
-            # Update state using RK4
-            q, q_dot, _ = self.forward_dynamics(q, q_dot, tau, forward_int='rk4')
-
-        """Animation Setup"""
-        plotter = RobotPlotter(self)
-        anim = plotter.setup_free_fall_plot()
-        plotter.show()
-
-    def computed_torque_control(self, time_frame, q, q_dot, q_des, q_dot_des, q_ddot_des, Kp, Kd):
+    def computed_torque_control(self, q, q_dot, q_des, q_dot_des, q_ddot_des, Kp, Kd):
         """
         θ: joint angle
         𝜔 = (dθ/dt): joint velocity
@@ -239,20 +189,10 @@ class Robot_Dynamics:
 
         Input to the system: 𝛕 = M(θ)*{𝛼_d(t) - Kp*e(t) - Kd*(d[e(t)]/dt)} + C(θ,𝜔) + G(θ)
         """
-        
-        # For plotting
-        self.X_plot = np.zeros((len(time_frame)+1, self.n + 2))
-        self.Y_plot = np.zeros((len(time_frame)+1, self.n + 2))
-        self.Z_plot = np.zeros((len(time_frame)+1, self.n + 2))
-        self.joint_error_plot = np.zeros((self.n, len(time_frame)+1))
-        self.tau_plot = np.zeros((self.n, len(time_frame)+1))
-
-        self.dt = time_frame[1] - time_frame[0]
-        self.T = time_frame
 
         for t in range(self.T.shape[0]-1):
             # Forward Kinematics
-            X_cord, Y_cord, Z_cord = self.robot_KM.FK(q)
+            X_cord, Y_cord, Z_cord = self.robot.robot_KM.FK(q)
 
             # Define tracking error
             if q.shape != q_des[:,[t]].shape:
@@ -267,123 +207,62 @@ class Robot_Dynamics:
             u = (Kp @ e) + (Kd @ e_dot)
 
             # Computer Torque Control Law
-            M, C, _, G = self.compute_dynamics(q, q_dot)
-            tau = M @ (q_ddot_des[:,[t]] + u) + C + G
+            M, C_vec, _, G = self.robot.compute_dynamics(q, q_dot)
+            tau = M @ (q_ddot_des[:,[t]] + u) + C_vec + G
 
             # Store in memory
-            self.memory(t, X_cord, Y_cord, Z_cord, e, tau) 
+            self.memory(X_cord, Y_cord, Z_cord, e, tau) 
 
             # Robot next state based on control input
             # q, q_dot = self.rk4_step(q, q_dot, tau)
-            q, q_dot, _ = self.forward_dynamics(q, q_dot, tau, forward_int='rk4')
+            q, q_dot, _ = self.robot.forward_dynamics(q, q_dot, tau, forward_int='rk4')
 
         """Animation Setup"""
         plotter = RobotPlotter(self)
         anim = plotter.setup_computed_torque_in_joint_space()
         plotter.show()
 
-    # WITHOUT contact force feedback
-    def impedence_control_static(self, q, q_dot, E, E_dot, Dd, Kd):
-        """
-        Impedance control is widely used in robotics, especially in applications involving physical interaction 
-        with uncertain environments. It's ideal for scenarios where a robot needs to respond flexibly to forces 
-        exerted on it. Classic impedance control tries to establish a mass-spring-damper relationship between 
-        external forces and robot motion.
-        """
-        J = self.robot_KM.J(q)
+    def M_matrix_task_space(self, M_q, J):
+        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
+        return M_x
 
-        M, C, _, G = self.compute_dynamics(q, q_dot)
-       
-        # Classical Impedance Controller with No Inertia
-        impedence_force = Dd @ E_dot + Kd @ E
-        tau = G - J.T @ impedence_force   # Cartesian PD control with gravity cancellation
-        return tau
+    def M_C_matrix_task_space(self, M_q, C_q, J, J_dot):
+        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
+        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
+        C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
+        return M_x, C_x 
 
-    def _get_joint_weights(self, q):
-        """Calculate weights based on distance from joint limits"""
-        weights = np.ones(self.n)
-        for i in range(self.n):
-            q_max = self.joint_limits['upper'][i]
-            q_min = self.joint_limits['lower'][i]
-            q_mid = (q_max + q_min) / 2
-            q_range = (q_max - q_min) / 2
+    def M_G_matrix_task_space(self, M_q, G_q, J):
+        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
+        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
+        G_x = J_inv.T @ G_q
+        return M_x, G_x
+
+    def M_C_G_matrix_task_space(self, M_q, C_q, G_q, J, J_dot):
+        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
+        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
+        C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
+        G_x = J_inv.T @ G_q
+        return M_x, C_x, G_x
+    
+    def free_fall(self, q, q_dot, tau=None):
+        if tau is None:
+            tau = np.zeros((self.n,1))
+        
+        for _ in range(self.T.shape[0]-1):
+            # Forward Kinematics
+            X_cord, Y_cord, Z_cord = self.robot_KM.FK(q)
             
-            # Normalized distance from middle (-1 to 1)
-            dist = (q[i] - q_mid) / q_range
+            # Store in memory
+            self.memory(X_cord, Y_cord, Z_cord) 
             
-            # Increase weight when near limits
-            if abs(dist) > 0.75:  # Start increasing weight at 85% of range
-                weights[i] = 1.0 + 10.0 * (abs(dist) - 0.75)**2
-        return weights
-    
-    def impedence_control_TT_1(self, q, q_dot, E, E_dot, Xd_ddot, Dd, Kd):
-        """Impedance control with weighted pseudo-inverse"""
-        # Task Jacobian
-        J = self.robot_KM.J(q)
-        J_inv = J.T @ np.linalg.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
+            # Update state using RK4
+            q, q_dot, _ = self.forward_dynamics(q, q_dot, tau, forward_int='rk4')
 
-        # # Get joint weights
-        # W = np.diag(self._get_joint_weights(q))
-        
-        # # Weighted damped pseudo-inverse
-        # J_inv = np.linalg.inv(W) @ J.T @ np.linalg.inv(J @ np.linalg.inv(W) @ J.T + 0.005 * np.eye(J.shape[0]))
-        
-        J_dot = self.robot_KM.J_dot(q, q_dot)
-        M, C, _, G = self.compute_dynamics(q, q_dot)
-        
-        # Compute desired acceleration
-        qd_ddot = J_inv @ (Xd_ddot - J_dot @ q_dot.reshape((self.n, 1)))
-        
-        # Standard impedance control
-        impedence_force = Dd @ E_dot + Kd @ E
-        tau = M @ qd_ddot + C + G - J.T @ impedence_force
-        return tau
-    
-    # Guarantee of asymptotic convergence to zero tracking error (on Xd(t)) when F=0 (no contact situation)
-    def impedence_control_TT_2(self, q, q_dot, E, E_dot, Xd_dot, Xd_ddot, Dd, Kd):
-        J = self.robot_KM.J(q)
-        # J_inv = J.T @ np.linalg.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
-
-        # Get joint weights
-        W = np.diag(self._get_joint_weights(q))
-        
-        # Weighted damped pseudo-inverse
-        J_inv = np.linalg.inv(W) @ J.T @ np.linalg.inv(J @ np.linalg.inv(W) @ J.T + 0.005 * np.eye(J.shape[0]))
-
-        J_dot = self.robot_KM.J_dot(q, q_dot)
-
-        M, _, C, G = self.compute_dynamics(q, q_dot)    # here, C is matrix
-        
-        qd_dot = J_inv @ Xd_dot
-        qd_ddot = J_inv @ (Xd_ddot - J_dot @ qd_dot)
-
-        impedence_force = Dd @ E_dot + Kd @ E
-        tau = M @ qd_ddot + C @ qd_dot + G - J.T @ impedence_force
-        return tau
-    
-    # (Passive) Dynamical-System based Impedence Controller
-    def passive_control(self):
-        pass
-
-    def torque_control_1(self, q, q_dot, qr_dot, qr_ddot, Kd):
-        # Define tracking error    
-        e_dot = (qr_dot - q_dot).reshape((self.n, 1)) 
-
-        # Feed-back PID-control Input
-        u = qr_ddot.reshape((self.n,1)) + (Kd @ e_dot)
-
-        # Control Law
-        M, C, _, G = self.compute_dynamics(q, q_dot)
-        tau = M @ u + C + G
-        return tau
-    
-    def torque_control_2(self, q, q_dot, qr_ddot):
-        u = qr_ddot.reshape((self.n,1))
-
-        # Control Law
-        M, C, _, G = self.compute_dynamics(q, q_dot)
-        tau = M @ u + C + G
-        return tau
+        """Animation Setup"""
+        plotter = RobotPlotter(self)
+        anim = plotter.setup_free_fall_plot()
+        plotter.show()
     
     def show_plot(self):
         """Animation Setup"""

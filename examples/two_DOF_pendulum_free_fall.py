@@ -4,10 +4,7 @@ import numpy as np
 np.set_printoptions(suppress=True)
 from sympy import *
 
-# Add the parent directory 'PhD' to the system path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from mathematical_model import Robot_Dynamics
+from robot_model import Robot_Dynamics
 
 # ----------------------------------------- 2-DOF Pendulum -------------------------------------------- #
 
@@ -39,7 +36,11 @@ t = np.linspace(0, 5, 1000)
 q_initial = np.array([0, 0])
 q_dot_initial = np.array([0, 0])
 
+# Start plotting tool
+dt = t[1] - t[0]
+robot.plot_start(dt, t)
+
 # free-fall condition
-robot.free_fall(t, q_initial, q_dot_initial)
+robot.free_fall(q_initial, q_dot_initial)
 
 
