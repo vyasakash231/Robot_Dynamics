@@ -8,9 +8,14 @@ from sympy import *
 from dynamic_modelling_methods import Euler_Lagrange, RNEA
 from plotting import RobotPlotter
 from .robot_kinematic_model import Robot_KM
+from .utils import *
 
 
 class Robot_Dynamics:
+    # TODO: Forward Dynamics: Brute Force (Matrix Inversion), Articulated-Body Algorithm
+    # TODO: Inverse Dynamics: Recursive Newton-Euler Algorithm
+    # TODO: Mass Matrix: Composite Rigid Body Algorithm 
+    
     def __init__(self, kinematic_property={}, mass=[], COG_wrt_body=[], MOI_about_body_COG=[], joint_limits={}, file_name=None):
         self.n = kinematic_property['dof']
         self.alpha = kinematic_property['alpha']
@@ -31,7 +36,7 @@ class Robot_Dynamics:
         self.robot_KM = Robot_KM(self.n, self.alpha, self.a, self.d, self.d_nn)  # Numeric Kinematic Model
 
         # robot_DM = Euler_Lagrange(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Euler-Lagrange Method
-        robot_DM = RNEA(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Recursiv Netwon-Euler Method
+        robot_DM = RNEA(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Recursive Netwon-Euler Method
         
         # Check if the file already exists
         if os.path.exists('../models/'+file_name+'.pkl'):
@@ -76,22 +81,28 @@ class Robot_Dynamics:
 
     def forward_dynamics(self, q, q_dot, tau, forward_int=None, ext_force=None):
         """ 
+        Using Brute Force Approach: 
         M(theta) * theta_ddot + C(theta, theta_dot) + G(theta) = tau
-
         M(theta) * theta_ddot = [tau - C(theta, theta_dot) - G(theta)] 
         
         A * Y = b
-        Y = A^(-1) * b  =>  np.linalg.solve(A, b) 
+        Y = A^(-1) * b  =>  np.linalg.solve(A, b)
+        
+        * Finding A^(-1) has O(n^3) time complexity using gaussian elimination, but we can use it till (n <= 6)
+        * For, (n > 6) we have to use Articulated Body Algorithm, it's time complexity is O(n) 
         """
         M, C_vec, _, G = self.compute_dynamics(q, q_dot)  
+
+        # find joint limit force (soft joint limit)
+        constraint_torque = apply_joint_limits(q, q_dot, self.joint_limits)[:, np.newaxis]
         
         if ext_force is None:
-            b = tau - (C_vec + G)
+            b = tau - (C_vec + G) + constraint_torque
         else:
             J = self.robot_KM.J(q)
             if ext_force.ndim == 1:
                 ext_force = ext_force.reshape((3,1))
-            b = tau - (C_vec + G - J.T @ ext_force)
+            b = tau - (C_vec + G - J.T @ ext_force) + constraint_torque
 
         b = b.astype(np.float64)  # Ensure b is float64
         
@@ -103,6 +114,9 @@ class Robot_Dynamics:
         elif forward_int == 'euler_forward':
             q_dot_new = q_dot + q_ddot * self.dt
             q_new = q + q_dot * self.dt
+
+            # hard joint limit
+            q_new, q_dot_new = enforce_joint_limits(q_new, q_dot_new, self.joint_limits)
 
             return q_new, q_dot_new, q_ddot
         
@@ -137,8 +151,7 @@ class Robot_Dynamics:
                                                
                                      |  k4_q  |        |        x2 + k3_q_dot      |
             k4 = dt * g(X + k3/2) => |        | = dt * |                           |
-                                     |k4_q_do    g = symbols("g")  # gravity
-t|        |f(x1 + k3_q, x2 + k3_q_dot)|  
+                                     |k4_q_dot|        |f(x1 + k3_q, x2 + k3_q_dot)|  
 
             4) compute next-state vector: X(t+1) = X(t) + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
 
@@ -157,88 +170,30 @@ t|        |f(x1 + k3_q, x2 + k3_q_dot)|
             q_dot_new = q_dot + (h/6) * (k1_q_dot + 2*k2_q_dot + 2*k3_q_dot + k4_q_dot)
             q_ddot = k1_q_dot
 
+            # hard joint limit
+            q_new, q_dot_new = enforce_joint_limits(q_new, q_dot_new, self.joint_limits)
             return q_new, q_dot_new, q_ddot       
 
         else: 
             print("wrong forward_intergral chosen!")
 
-    def computed_torque_control(self, q, q_dot, q_des, q_dot_des, q_ddot_des, Kp, Kd):
-        """
-        θ: joint angle
-        𝜔 = (dθ/dt): joint velocity
-        𝛼 = (d𝜔/dt): joint acceleration
-
-        Robot Dynamics: M(θ)*𝛼 + C(θ,𝜔) + G(θ) = 𝛕
-        tracking error: e(t) = θ_d(t) - θ(t)
-                        d[e(t)]/dt = 𝜔_d(t) - 𝜔(t) 
-                        dd[e(t)]/ddt = 𝛼_d(t) - 𝛼(t) 
-
-        To eliminate nonlinear term defined a feed-forward control in this case, CTC law: 𝛕 = M(θ)*𝛼_d + C(θ,𝜔) + G(θ)
-        Now, just using a feed-forward controller is not enough, since we do not have an exact model of our robot.
-
-        So, we introduce a feed-back control term u in the CTC law: 𝛕 = M(θ)*(𝛼_d + u) + C(θ,𝜔) + G(θ)
-        here, u is the outer loop feedback control input.
-
-        Substituting into the robot dynamics: M(θ)*𝛼 + C(θ,𝜔) + G(θ) = M(θ)*(𝛼_d + u) + C(θ,𝜔) + G(θ)
-        
-        finally got (2nd order linear DS): 𝛼 = 𝛼_d + u  => (𝛼 - 𝛼_d) = u
-        
-        Now, if we select a control u that stabilizes (𝛼 - 𝛼_d) = u, then e(t) goes to 0
-
-        A simple Outer feedback law that stabilizes the system along θ_d(t) is: u = - Kp*e(t) - Kd*(d[e(t)]/dt)
-
-        Input to the system: 𝛕 = M(θ)*{𝛼_d(t) - Kp*e(t) - Kd*(d[e(t)]/dt)} + C(θ,𝜔) + G(θ)
-        """
-
-        for t in range(self.T.shape[0]-1):
-            # Forward Kinematics
-            X_cord, Y_cord, Z_cord = self.robot.robot_KM.FK(q)
-
-            # Define tracking error
-            if q.shape != q_des[:,[t]].shape:
-                Q = q.reshape(q_des[:,[t]].shape)
-            e = q_des[:,[t]] - Q
-            
-            if q_dot.shape != q_dot_des[:,[t]].shape:
-                Q_dot = q_dot.reshape(q_dot_des[:,[t]].shape)
-            e_dot = q_dot_des[:,[t]] - Q_dot
-
-            # Feed-back PD-control Input
-            u = (Kp @ e) + (Kd @ e_dot)
-
-            # Computer Torque Control Law
-            M, C_vec, _, G = self.robot.compute_dynamics(q, q_dot)
-            tau = M @ (q_ddot_des[:,[t]] + u) + C_vec + G
-
-            # Store in memory
-            self.memory(X_cord, Y_cord, Z_cord, e, tau) 
-
-            # Robot next state based on control input
-            # q, q_dot = self.rk4_step(q, q_dot, tau)
-            q, q_dot, _ = self.robot.forward_dynamics(q, q_dot, tau, forward_int='rk4')
-
-        """Animation Setup"""
-        plotter = RobotPlotter(self)
-        anim = plotter.setup_computed_torque_in_joint_space()
-        plotter.show()
-
-    def M_matrix_task_space(self, M_q, J):
+    def Mx(self, M_q, J):
         M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
         return M_x
 
-    def M_C_matrix_task_space(self, M_q, C_q, J, J_dot):
+    def MCx(self, M_q, C_q, J, J_dot):
         J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
         M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
         C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
         return M_x, C_x 
 
-    def M_G_matrix_task_space(self, M_q, G_q, J):
+    def MGx(self, M_q, G_q, J):
         J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
         M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
         G_x = J_inv.T @ G_q
         return M_x, G_x
 
-    def M_C_G_matrix_task_space(self, M_q, C_q, G_q, J, J_dot):
+    def MCGx(self, M_q, C_q, G_q, J, J_dot):
         J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
         M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
         C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
@@ -263,8 +218,14 @@ t|        |f(x1 + k3_q, x2 + k3_q_dot)|
         plotter = RobotPlotter(self)
         anim = plotter.setup_free_fall_plot()
         plotter.show()
+
+    def show_plot_tauj(self):
+        """Animation Setup"""
+        plotter = RobotPlotter(self)
+        anim = plotter.setup_computed_torque_in_joint_space()
+        plotter.show()
     
-    def show_plot(self):
+    def show_plot_taux(self):
         """Animation Setup"""
         plotter = RobotPlotter(self)
         anim = plotter.setup_computed_torque_in_task_space()

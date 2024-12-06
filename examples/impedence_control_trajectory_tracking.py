@@ -36,8 +36,6 @@ MOI_about_body_CG = []  # MOI of the link about COG
 joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
                 'lower': np.radians([-180, -117, -90, -103]),
                 'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
-                'acc_max': np.array([1.0, 1.0, 1.0, 1.0]),  # Maximum joint accelerations
-                'buffer': 0.15  # radians of buffer zone before hard limit
                 }
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
@@ -77,7 +75,7 @@ poly_order = 3  # Adjust based on your data
 Xd_dot = np.array([savgol_filter(Xd[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd.shape[0])])
 
 # Calculate acceleration
-Xd_ddot = np.array([[0],[0],[0]])   # for impedence_control_TT_1
+Xd_ddot = np.array([[0],[0],[0]])   # for impedence_control_TT_2
 # Xd_ddot = np.array([savgol_filter(Xd_dot[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd_dot.shape[0])])
 
 # Start plotting tool
@@ -101,13 +99,14 @@ for i in range(Xd.shape[1]-1):
     #     external_force = np.array([[1], [1], [1]])  
     
     # Kinematic Model
-    Xe, Xe_dot, _ = robot.robot_KM.kinematic_model(dt, q, q_dot, q_ddot)
+    Xe, Xe_dot, _ = robot.robot_KM.IK(q, q_dot, q_ddot)
     
     # task space error
     Ex = Xe - Xd[:,[i]]
     Ex_dot = Xe_dot - Xd_dot[:,[i]]
 
     # Feed-forward Control
+    # tau = controller.impedence_control_TT_1(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Dd, Kd)
     tau = controller.impedence_control_TT_2(q, q_dot, Ex, Ex_dot, Xd_dot[:,[i]], Xd_ddot, Dd, Kd)
 
     X_cord, Y_cord, Z_cord = robot.robot_KM.FK(q)

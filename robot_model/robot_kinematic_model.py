@@ -34,12 +34,13 @@ class Robot_KM:
         return  R, O, P_00
     
     def initial_state(self, theta):
+        self.q = theta
         _, _, P_00 = self._transformation_matrix(theta)
         self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
         
         # Initial Referance State (Joint Space)
         self.qr = np.zeros(self.n)
-        self.qr_dot_t0 = np.zeros(self.n)
+        self.qr_dot = np.zeros(self.n)
 
     def J(self, theta):
         R, O, _ = self._transformation_matrix(theta)
@@ -75,34 +76,6 @@ class Robot_KM:
         for j in range(i+1, self.n):
             g = g + np.cross(Z, O[:,[j+1]] - O[:,[j]], axis=0)
         return g
-
-    # def J_dot(self, theta, theta_dot):
-    #     R, O, _ = self._transformation_matrix(theta)
-
-    #     R_n_0 = R[self.n-1,:,:]
-    #     O_n_0 = np.transpose(np.array([O[:,self.n-1]]))  # O_n
-    #     O_E_n = self.d_nn 
-    #     O_E_0 = O_n_0 + np.dot(R_n_0,O_E_n)  # O_E = O_n+1
-
-    #     # Add end-effector coord into O matrix
-    #     O = np.hstack((O, O_E_0))  # [O_1, O_2, O_3, ... , O_n, O_E]
-
-    #     Z_1_0 = np.transpose(np.array([R[0,:,2]]))  # first Z column -> Z_1
-    #     Z_n_0 = np.transpose(np.array([R[-1,:,2]]))  # last Z column -> Z_n 
-
-    #     Jz_dot = np.zeros((3,self.n))
-    #     # Jw_dot = np.zeros((3,self.n))
-
-    #     for i in range(self.n-1):
-    #         Z_i_0 = np.transpose(np.array([R[i,:,2]]))  # Z_{i} in base frame
-    #         Z_i_1_0 = np.transpose(np.array([R[i+1,:,2]]))  # Z_{i+1} in base frame
-            
-    #         Jz_dot[:,[i]] = theta_dot[i] * np.cross(Z_i_0, self._f(i, Z_i_0, O), axis=0) + \
-    #                         theta_dot[i+1] * (np.cross(Z_i_0, self._f(i+1, Z_i_1_0, O), axis=0) + np.cross(Z_i_1_0, self._g(i, Z_i_0, O), axis=0))
-        
-    #     Jz_dot[:,[-1]] = theta_dot[-1] * np.cross(Z_n_0, self._f(i+1, Z_n_0, O), axis=0) + \
-    #                     theta_dot[0] * np.cross(Z_n_0, np.cross(Z_1_0, (O_E_0 - O_n_0), axis=0), axis=0)
-    #     return Jz_dot.astype(np.float64)
 
     def J_dot(self, theta, theta_dot, H=None):
         """ https://doi.org/10.48550/arXiv.2207.01794 """
@@ -174,7 +147,7 @@ class Robot_KM:
         Z_cord = np.concatenate(([0],O[2,:],P_00[[2],0]))
         return X_cord, Y_cord, Z_cord        
 
-    def kinematic_model(self, dt, theta, theta_dot, theta_ddot, level="vel"):
+    def IK(self, theta, theta_dot, theta_ddot, level="vel"):
         if level == "vel":
             J = self.J(theta)
 
@@ -182,8 +155,7 @@ class Robot_KM:
                 theta_dot = theta_dot.reshape((self.n, 1))
 
             Xe_dot = J @ theta_dot   # end-effector velocity
-            #self.Xe = self.Xe + Xe_dot * dt  # end-effector position
-            _, _, P_00 = self._transformation_matrix(theta)
+            _, _, P_00 = self._transformation_matrix(theta)  # end-effector position
             self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
             return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), []
         
@@ -198,8 +170,7 @@ class Robot_KM:
 
             Xe_dot = J @ theta_dot    # end-effector velocity
             Xe_ddot = J @ theta_ddot + J_dot @ theta_dot    # end-effector acceleration
-            # self.Xe = self.Xe + Xe_dot * dt  # end-effector position
-            _, _, P_00 = self._transformation_matrix(theta)
+            _, _, P_00 = self._transformation_matrix(theta)  # end-effector position
             self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
             return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), Xe_ddot.astype(np.float64)        
     

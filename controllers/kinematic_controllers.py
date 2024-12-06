@@ -15,7 +15,8 @@ class Kinematic_Control:
         # Manipulability Jacobian matrix
         J_m = self.robot.robot_KM.manipulability_Jacobian(q, J)
 
-        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
+        # pseudoinverse of the Jacobian
+        J_inv = J.T @ np.linalg.inv(J @ J.T)    
 
         # Xd_dot is the desired task space velocities, Xd is the desired task space position
         # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
@@ -30,8 +31,7 @@ class Kinematic_Control:
         self.robot.robot_KM.qr = self.robot.robot_KM.qr + qr_dot_t1 * dt  # In radians
 
         # Numerical Integration
-        qr_ddot = np.zeros((self.robot.n))         # this is creating much smoother torque
-        
+        qr_ddot = np.zeros((self.robot.n))     # this is creating much smoother torque
         return self.robot.robot_KM.qr.astype(np.float64), qr_dot_t1.astype(np.float64), qr_ddot.astype(np.float64)
         
     def acceleration_based_control_1(self, dt, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_task_space, Kd_task_space):
@@ -47,7 +47,8 @@ class Kinematic_Control:
         # jacobian_dot matrix
         J_dot = self.robot.robot_KM.J_dot(q, q_dot, H)
 
-        J_inv = J.T @ np.linalg.inv(J @ J.T)    # pseudoinverse of the Jacobian
+        # pseudoinverse of the Jacobian
+        J_inv = J.T @ np.linalg.inv(J @ J.T)    
 
         # Xd_ddot is the desired task space acceleration, Xd_dot is the desired task space velocity, Xd is the desired task space position
         # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
@@ -56,16 +57,15 @@ class Kinematic_Control:
 
         zeta = - (30 * J_m)
 
-        qr_ddot = J_inv @ (Xr_ddot - (J_dot @ self.robot.robot_KM.qr_dot_t0.reshape((self.robot.n, 1)))) + (np.eye(self.robot.n) - J_inv @ J) @ zeta   # In radians/s^2
+        qr_ddot = J_inv @ (Xr_ddot - (J_dot @ self.robot.robot_KM.qr_dot.reshape((self.robot.n, 1)))) + (np.eye(self.robot.n) - J_inv @ J) @ zeta   # In radians/s^2
         qr_ddot = qr_ddot.reshape(-1)
 
         # Numerical Differentation
-        self.robot.robot_KM.qr_dot_t0 = self.robot.robot_KM.qr_dot_t0 + qr_ddot * dt  # In radians/s
+        self.robot.robot_KM.qr_dot = self.robot.robot_KM.qr_dot + qr_ddot * dt  # In radians/s
 
         # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot_t0 * dt  # In radians
-
-        return self.robot.robot_KM.qr.astype(np.float64), self.robot.robot_KM.qr_dot_t0.astype(np.float64), qr_ddot.astype(np.float64)
+        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * dt  # In radians
+        return self.robot.robot_KM.qr.astype(np.float64), self.robot.robot_KM.qr_dot.astype(np.float64), qr_ddot.astype(np.float64)
         
     def acceleration_based_control_2(self, dt, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_task_space, Kd_task_space, kd_joint_space):
         # jacobian matrix
@@ -89,14 +89,13 @@ class Kinematic_Control:
 
         zeta = -(kd_joint_space @ q_dot.reshape((self.robot.n, 1)) + 30 * J_m)
 
-        qr_ddot = J_inv @ (Xr_ddot - J_dot @ self.robot.robot_KM.qr_dot_t0.reshape((self.robot.n, 1))) + (np.eye(self.robot.n) - J_inv @ J) @ zeta   # In radians/s^2
+        qr_ddot = J_inv @ (Xr_ddot - J_dot @ self.robot.robot_KM.qr_dot.reshape((self.robot.n, 1))) + (np.eye(self.robot.n) - J_inv @ J) @ zeta   # In radians/s^2
         qr_ddot = qr_ddot.reshape(-1)
 
         # Numerical Differentation
-        self.robot.robot_KM.qr_dot_t0 = self.robot.robot_KM.qr_dot_t0 + qr_ddot * dt  # In radians/s
+        self.robot.robot_KM.qr_dot = self.robot.robot_KM.qr_dot + qr_ddot * dt  # In radians/s
 
         # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot_t0 * dt  # In radians
-
+        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * dt  # In radians
         return self.robot.robot_KM.qr.astype(np.float64), qr_ddot.astype(np.float64)
         

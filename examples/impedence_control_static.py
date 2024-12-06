@@ -30,8 +30,13 @@ MOI_about_body_CG = []  # MOI of the link about COG
     #                                  [0,  0,  0],
     #                                  [0,  0,  0]]))
 
+joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
+                'lower': np.radians([-180, -117, -90, -103]),
+                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
+                }
+
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
-robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, file_name="Open_X_manipulator")
+robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, joint_limits=joint_limits, file_name="Open_X_manipulator")
 controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
@@ -68,7 +73,7 @@ while True:
         external_force = np.array([[1], [1], [1]])        
     
     # Kinematic Model
-    Xe, Xe_dot, _ = robot.robot_KM.kinematic_model(dt, q, q_dot, q_ddot)
+    Xe, Xe_dot, _ = robot.robot_KM.IK(q, q_dot, q_ddot)
     
     # task space error
     Ex = Xe - Xd

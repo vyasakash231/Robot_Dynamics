@@ -33,8 +33,13 @@ MOI_about_body_CG = []  # MOI of the link about COG
     #                                  [0,  0,  0],
     #                                  [0,  0,  0]]))
 
+joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
+                'lower': np.radians([-180, -117, -90, -103]),
+                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
+                }
+
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
-robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, file_name="Open_X_manipulator")
+robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, joint_limits=joint_limits, file_name="Open_X_manipulator")
 controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
@@ -43,10 +48,10 @@ q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
 # Control Gain
-Kp_ts = np.diag([20,20,20])  # Proportional gains for joint space control
-Kd_ts = 4*np.sqrt(Kp_ts)   # Derivative gains for joint space control
+Kp_ts = np.diag([25,25,25])  # Proportional gains for joint space control
+Kd_ts = 5*np.sqrt(Kp_ts)   # Derivative gains for joint space control
 
-Kd_js = np.sqrt([2.5,2.5,2.5,2.5])     # Derivative gains for joint space control
+Kd_js = np.diag([5,5,5,5])     # Derivative gains for joint space control
 
 """ Trajectory tracking """
 # trajectory 
@@ -84,7 +89,7 @@ robot.robot_KM.initial_state(q)
 # Simulation loop
 for i in range(Xd.shape[1]-1):   
     # Kinematic Model
-    Xe, Xe_dot, _ = robot.robot_KM.kinematic_model(dt, q, q_dot, q_ddot)
+    Xe, Xe_dot, _ = robot.robot_KM.IK(q, q_dot, q_ddot)
     
     # task space error
     Ex = Xd[:,[i]] - Xe
@@ -105,4 +110,4 @@ for i in range(Xd.shape[1]-1):
     # Robot Joint acceleration
     q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward")  # forward_int = None / euler_forward / rk4
     
-robot.show_plot()
+robot.show_plot_taux()
