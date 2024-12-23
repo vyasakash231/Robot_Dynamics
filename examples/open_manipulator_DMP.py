@@ -5,12 +5,10 @@ np.set_printoptions(suppress=True)
 from sympy import *
 import scipy.interpolate
 import scipy.linalg
-from scipy.signal import savgol_filter
 
 # from my_DMP.dmp import DMP
 from robot_model import Robot_Dynamics
 from controllers import Controller
-
 
 # --------------------------------------------- Open Manipulator -------------------------------------------- #
 
@@ -26,7 +24,11 @@ kinematic_property = {'dof':n, 'alpha':alpha, 'a':a, 'd':d, 'd_nn':d_nn}
 # Dyanamic ParametersX_cord
 mass = np.array([0.0, 0.1423463, 0.13467049, 0.23550927])
 
-COG_wrt_body = [Matrix([[0],[0],[0]]), Matrix([[0.106],[-0.014],[0]]), Matrix([[0.0933],[0],[0]]), Matrix([[0.06047],[0],[0]])]  # location of COG wrt to DH-frame / body frame
+COG_wrt_body = [Matrix([[0],[0],[0]]), 
+                Matrix([[0.106],[-0.014],[0]]), 
+                Matrix([[0.0933],[0],[0]]), 
+                Matrix([[0.06047],[0],[0]])]  # location of COG wrt to DH-frame / body frame
+
 MOI_about_body_CG = []  # MOI of the link about COG
 # for i in range(len(mass)):
     # MOI_about_body_CG.append(Matrix([[0,  0,  0],
@@ -35,7 +37,7 @@ MOI_about_body_CG = []  # MOI of the link about COG
 
 joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
                 'lower': np.radians([-180, -117, -90, -103]),
-                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
+                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180 deg/s)
                 }
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
@@ -43,14 +45,14 @@ robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG
 controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
-q = np.array([0.93028432, 1.78183731, -1.8493209, -0.78539816])  # In radian
+q = np.radians([53.0, 102.0, -106.0, -45.0])  # In radian
 q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
-# Control Gain
-Kp_ts = np.diag([10,10,10])   # Proportional gains for joint space control
-Kp_js = np.diag([40,40,40,40]) 
-Kd_js = np.diag([10,10,10,10])    # Derivative gains for joint space control
+# Robot Goal State
+q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
+
+dt = 0.01
 
 """ Trajectory tracking """
 # trajectory 
@@ -70,41 +72,31 @@ t_dense = np.linspace(0, 5, 500)
 dt = t_dense[1] - t_dense[0]
 Xd = pos_interp(t_dense)
 
-# Apply Savitzky-Golay filter to each dimension
-window_length = 15  # Must be odd; adjust based on your data
-poly_order = 3  # Adjust based on your data
-Xd_dot = np.array([savgol_filter(Xd[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd.shape[0])])
+# gain matrix
+Kp = np.diag([200, 200, 200, 200])
+Kd = np.diag([25, 25, 25, 25])
 
 # Start plotting tool
-robot.plot_start(dt, t_dense)
+robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
 robot.robot_KM.initial_state(q)
 
-"""This formulation essentially allows you to control the joint torques 
-in a manner that tracks the referance joint positions, velocities"""
+# Start DMPS
+controller.start_dmp()
+
 # Simulation loop
-for i in range(Xd.shape[1]-1):   
-    # Kinematic Model
-    Xe, Xe_dot, _ = robot.robot_KM.IK(q, q_dot, q_ddot)
-
-    # task space error
-    Ex = Xd[:,[i]] - Xe
-    Ex_dot = Xd_dot[:,[i]] - Xe_dot
-
-    # Kinematic Control
-    qr, qr_dot, qr_ddot = controller.velocity_based_control(dt, q, Ex, Xd_dot[:,[i]], Kp_ts)
-
+for i in range(t.shape[0]-1):
     # Feed-forward Control
-    tau = controller.torque_control_1(q, q_dot, qr_dot, qr_ddot, Kd_js)
-
-    # Joint space error
-    Er = (qr - q).reshape((n, 1)) 
-
+    tau = controller.pd_ctc(q, q_dot, qd[:,i], qd_dot[:,i], qd_ddot[:,i], Kp, Kd)
+    
+    E_joint = (qd[:,i] - q)[:,np.newaxis]
+    
+    # Forward Kinematics
     X_cord, Y_cord, Z_cord = robot.robot_KM.FK(q)
-    robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd[:,[i]], Ex, Ex_dot)
+    robot.memory(X_cord, Y_cord, Z_cord, E_joint, tau)
 
     # Robot Joint acceleration
     q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward")  # forward_int = None / euler_forward / rk4
     
-robot.show_plot_taux()
+robot.show_plot_tauj()

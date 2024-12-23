@@ -11,6 +11,9 @@ from scipy.signal import savgol_filter
 from robot_model import Robot_Dynamics
 from controllers import Controller
 
+def smooth_velocity(pos, t, smoothing_factor=1.0):
+    spline = scipy.interpolate.UnivariateSpline(t, pos, s=smoothing_factor)
+    return spline.derivative()(t)
 
 # --------------------------------------------- Open Manipulator -------------------------------------------- #
 
@@ -43,12 +46,12 @@ robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG
 controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
-q = np.array([0.93028432, 1.78183731, -1.8493209, -0.78539816])  # In radian
+q = np.radians([60.0, 102.0, -108.0, -40.0])  # In radian
 q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
 # Control Gain
-Kp_ts = np.diag([25,25,25])  # Proportional gains for joint space control
+Kp_ts = np.diag([30,30,30])  # Proportional gains for joint space control
 Kd_ts = 5*np.sqrt(Kp_ts)   # Derivative gains for joint space control
 
 Kd_js = np.diag([5,5,5,5])     # Derivative gains for joint space control
@@ -65,11 +68,10 @@ x_des[0,:] += 0.2
 x_des[1,:] += 0.1
 
 t = np.linspace(0, 5, x_des.shape[1])  # demo trajectory timing
-pos_interp = scipy.interpolate.interp1d(t, x_des, kind="cubic", axis=1)
+dt = t[1] - t[0]
 
-t_dense = np.linspace(0, 5, 500)
-dt = t_dense[1] - t_dense[0]
-Xd = pos_interp(t_dense)
+pos_interp = scipy.interpolate.interp1d(t, x_des, axis=1)
+Xd = pos_interp(t)
 
 # Apply Savitzky-Golay filter to each dimension
 window_length = 15  # Must be odd; adjust based on your data
@@ -80,7 +82,7 @@ Xd_dot = np.array([savgol_filter(Xd[i], window_length, poly_order, deriv=1, delt
 Xd_ddot = np.array([savgol_filter(Xd_dot[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd_dot.shape[0])])
 
 # Start plotting tool
-robot.plot_start(dt, t_dense)
+robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
 robot.robot_KM.initial_state(q)
@@ -89,14 +91,14 @@ robot.robot_KM.initial_state(q)
 # Simulation loop
 for i in range(Xd.shape[1]-1):   
     # Kinematic Model
-    Xe, Xe_dot, _ = robot.robot_KM.IK(q, q_dot, q_ddot)
+    Xe, Xe_dot, _ = robot.robot_KM.FK(q, q_dot, q_ddot)
     
     # task space error
     Ex = Xd[:,[i]] - Xe
     Ex_dot = Xd_dot[:,[i]] - Xe_dot
 
     # Kinematic Control
-    qr, qr_ddot = controller.acceleration_based_control_2(dt, q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Kp_ts, Kd_ts, Kd_js)
+    qr, qr_ddot = controller.KC.acceleration_based_control_2(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Kp_ts, Kd_ts, Kd_js)
 
     # Torque Control
     tau = controller.torque_control_2(q, q_dot, qr_ddot)
@@ -104,7 +106,7 @@ for i in range(Xd.shape[1]-1):
     # Joint space error
     Er = (qr - q).reshape((n, 1)) 
 
-    X_cord, Y_cord, Z_cord = robot.robot_KM.FK(q)
+    X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
     robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd[:,[i]], Ex, Ex_dot)
 
     # Robot Joint acceleration

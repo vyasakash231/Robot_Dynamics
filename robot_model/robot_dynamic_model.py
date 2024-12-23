@@ -33,7 +33,7 @@ class Robot_Dynamics:
         # Add joint limits
         self.joint_limits = joint_limits
 
-        self.robot_KM = Robot_KM(self.n, self.alpha, self.a, self.d, self.d_nn)  # Numeric Kinematic Model
+        self.robot_KM = Robot_KM(self.n, self.alpha, self.a, self.d, self.d_nn, joint_limits)  # Numeric Kinematic Model
 
         # robot_DM = Euler_Lagrange(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Euler-Lagrange Method
         robot_DM = RNEA(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Recursive Netwon-Euler Method
@@ -92,20 +92,16 @@ class Robot_Dynamics:
         * For, (n > 6) we have to use Articulated Body Algorithm, it's time complexity is O(n) 
         """
         M, C_vec, _, G = self.compute_dynamics(q, q_dot)  
-
-        # find joint limit force (soft joint limit)
-        constraint_torque = apply_joint_limits(q, q_dot, self.joint_limits)[:, np.newaxis]
-        
+            
         if ext_force is None:
-            b = tau - (C_vec + G) + constraint_torque
+            b = tau - (C_vec + G)
         else:
             J = self.robot_KM.J(q)
             if ext_force.ndim == 1:
                 ext_force = ext_force.reshape((3,1))
-            b = tau - (C_vec + G - J.T @ ext_force) + constraint_torque
+            b = tau - (C_vec + G - J.T @ ext_force)
 
         b = b.astype(np.float64)  # Ensure b is float64
-        
         q_ddot = np.linalg.solve(M, b).reshape(-1)
 
         if forward_int is None:
@@ -113,11 +109,7 @@ class Robot_Dynamics:
         
         elif forward_int == 'euler_forward':
             q_dot_new = q_dot + q_ddot * self.dt
-            q_new = q + q_dot * self.dt
-
-            # hard joint limit
-            q_new, q_dot_new = enforce_joint_limits(q_new, q_dot_new, self.joint_limits)
-
+            q_new = q + q_dot_new * self.dt
             return q_new, q_dot_new, q_ddot
         
         elif forward_int == 'rk4':
@@ -159,7 +151,6 @@ class Robot_Dynamics:
             |       | = |     | + (dt/6) * |                                             |
             |x2(t+1)|   |x2(t)|            |k1_q_dot + 2*k2_q_dot + 2*k3_q_dot + k4_q_dot|
             """
-
             h = self.dt
             k1_q, k1_q_dot = self.forward_dynamics(q, q_dot, tau)
             k2_q, k2_q_dot = self.forward_dynamics(q + 0.5*h*k1_q, q_dot + 0.5*h*k1_q_dot, tau)
@@ -169,36 +160,39 @@ class Robot_Dynamics:
             q_new = q + (h/6) * (k1_q + 2*k2_q + 2*k3_q + k4_q)
             q_dot_new = q_dot + (h/6) * (k1_q_dot + 2*k2_q_dot + 2*k3_q_dot + k4_q_dot)
             q_ddot = k1_q_dot
-
-            # hard joint limit
-            q_new, q_dot_new = enforce_joint_limits(q_new, q_dot_new, self.joint_limits)
-            return q_new, q_dot_new, q_ddot       
-
+            return q_new, q_dot_new, q_ddot   
+            
         else: 
-            print("wrong forward_intergral chosen!")
+            raise ValueError("wrong forward intergral chosen!")
 
-    def Mx(self, M_q, J):
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        return M_x
+    """Eqn (18) from https://doi.org/10.1109/JRA.1987.1087068"""
+    def Mx(self, Mq, J):
+        threshold = 1e-3
 
-    def MCx(self, M_q, C_q, J, J_dot):
+        Mx_inv = J @ LA.inv(Mq) @ J.T
+        if abs(np.linalg.det(Mx_inv)) >= threshold:
+            Mx = LA.inv(Mx_inv)
+        else:
+            Mx = LA.pinv(Mx_inv, rcond=threshold * 0.1)
+        return Mx
+
+    def Cx(self, Mq, Cq, J, J_dot):
         J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
-        return M_x, C_x 
+        Mx = self.Mx(Mq, J)
+        Cx = J_inv.T @ Cq @ J_inv - Mx @ J_dot @ J_inv
+        return Cx 
 
-    def MGx(self, M_q, G_q, J):
+    """Eqn (25) from https://doi.org/10.1109/JRA.1987.1087068"""
+    def Gx(self, Gq, J):
         J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        G_x = J_inv.T @ G_q
-        return M_x, G_x
+        Gx = J_inv.T @ Gq
+        return Gx
 
-    def MCGx(self, M_q, C_q, G_q, J, J_dot):
-        J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        M_x = LA.inv(J @ LA.inv(M_q) @ J.T)
-        C_x = J_inv.T @ C_q @ J_inv - M_x @ J_dot @ J_inv
-        G_x = J_inv.T @ G_q
-        return M_x, C_x, G_x
+    def compute_MCGx(self, Mq, Cq, Gq, J, J_dot):
+        Mx = self.Mx(Mq, J)
+        Cx = self.Cx(Mq, Cq, J, J_dot)
+        Gx = self.CGx(Gq, J)
+        return Mx, Cx, Gx
     
     def free_fall(self, q, q_dot, tau=None):
         if tau is None:
@@ -206,7 +200,7 @@ class Robot_Dynamics:
         
         for _ in range(self.T.shape[0]-1):
             # Forward Kinematics
-            X_cord, Y_cord, Z_cord = self.robot_KM.FK(q)
+            X_cord, Y_cord, Z_cord = self.robot_KM.EE(q)
             
             # Store in memory
             self.memory(X_cord, Y_cord, Z_cord) 
@@ -238,7 +232,7 @@ class Robot_Dynamics:
         plotter.show()
     
     def plot_start(self, dt=None, time_frame=None):
-        self.dt = dt
+        self.robot_KM.dt = self.dt = dt
         self.T = None
 
         if time_frame is not None:

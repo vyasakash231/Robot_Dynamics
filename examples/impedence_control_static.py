@@ -73,7 +73,7 @@ while True:
         external_force = np.array([[1], [1], [1]])        
     
     # Kinematic Model
-    Xe, Xe_dot, _ = robot.robot_KM.IK(q, q_dot, q_ddot)
+    Xe, Xe_dot, _ = robot.robot_KM.FK(q, q_dot, q_ddot)
     
     # task space error
     Ex = Xe - Xd
@@ -82,7 +82,7 @@ while True:
     # Feed-forward Control
     tau = controller.impedence_control_static(q, q_dot, Ex, Ex_dot, Dd, Kd)
 
-    X_cord, Y_cord, Z_cord = robot.robot_KM.FK(q)
+    X_cord, Y_cord, Z_cord = robot.robot_KM.EE(q)
 
     robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd, Ex, Ex_dot, external_force)
 

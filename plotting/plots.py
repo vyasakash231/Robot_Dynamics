@@ -82,51 +82,44 @@ class RobotPlotter:
     """ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% """
     def create_animation(self, update_func):
         frames = len(self.T)-1 if self.T is not None else self.x_plot.shape[0]-1
-        anim = FuncAnimation(self.fig, update_func, frames=frames, interval=50 if self.T is None else 10, blit=False, repeat=False)
+        anim = FuncAnimation(self.fig, update_func, frames=frames, interval=60 if self.T is None else 10, blit=False, repeat=False)
         plt.subplots_adjust(wspace=0.3, hspace=0.3)
         return anim
     
     def update_free_fall(self, frame):
-        k = frame
         self.ax.clear()
-        self._plot_robot_state(self.ax, k)
+        self._plot_robot(self.ax, frame)
         self._set_3d_plot_properties_pendulum(self.ax, 90, -90)   # set graph properties 
         return self.ax
     
     def update_computed_torque_in_joint_space(self, frame):
-        k = frame
-        
         # Robot visualization
-        self._plot_robot_state(self.axs[0], k)
-        self._plot_joint_errors(self.axs[1], k)  # Error plot
-        self._plot_torques(self.axs[2], k)  # Torque plot
-        self._set_3d_plot_properties(self.axs[0], 90, -90)  # set graph properties 
+        self._plot_robot(self.axs[0], frame)
+        self._plot_joint_errors(self.axs[1], frame)  # Error plot
+        self._plot_torques(self.axs[2], frame)  # Torque plot
+        self._set_3d_plot_properties(self.axs[0], 9, -15)  # set graph properties 
         return self.axs
     
     def update_computed_torque_in_task_space(self, frame):
-        k = frame
-        
         # Robot visualization
-        self._plot_robot_state(self.axs[0], k)
-        self._plot_joint_errors(self.axs[1], k)  # Error plot
-        self._plot_torques(self.axs[2], k)  # Torque plot
-        self._plot_position_errors(self.axs[3], k)  # Error plot
-        self._plot_velocity_errors(self.axs[4], k)   # Error plot
-        self._set_3d_plot_properties(self.axs[0], 9, -14)   # set graph properties 
+        self._plot_robot(self.axs[0], frame)
+        self._plot_joint_errors(self.axs[1], frame)  # Error plot
+        self._plot_torques(self.axs[2], frame)  # Torque plot
+        self._plot_position_errors(self.axs[3], frame)  # Error plot
+        self._plot_velocity_errors(self.axs[4], frame)   # Error plot
+        self._set_3d_plot_properties(self.axs[0], 9, -25)   # set graph properties 
         return self.axs
 
     def update_impedence_control_in_task_space(self, frame):
-        k = frame
-        
         # Robot visualization
-        self._plot_robot_state(self.axs[0], k)
-        self._plot_torques(self.axs[1], k)  # Torque plot
-        self._plot_position_errors(self.axs[2], k)  # Torque plot
-        self._set_3d_plot_properties(self.axs[0], 9, -14)   # set graph properties 
+        self._plot_robot(self.axs[0], frame)
+        self._plot_torques(self.axs[1], frame)  # Torque plot
+        self._plot_position_errors(self.axs[2], frame)  # Torque plot
+        self._set_3d_plot_properties(self.axs[0], 9, -15)   # set graph properties 
         return self.axs    
 
     """ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% """
-    def _plot_robot_state(self, ax, k):
+    def _plot_robot(self, ax, k):
         ax.clear()
         try:
             # plot external wrench
@@ -138,10 +131,11 @@ class RobotPlotter:
             # Plot desired trajectory
             ax.plot(self.Xd_plot[0,:], self.Xd_plot[1,:], self.Xd_plot[2,:], '-r', linewidth=2)
         except:
-            pass    
+            pass
+
         for j in range(self.x_plot.shape[1]):
             ax.plot(self.x_plot[k,j:j+2], self.y_plot[k,j:j+2], self.z_plot[k,j:j+2], '-', linewidth=10-j)
-            ax.plot(self.x_plot[k,j], self.y_plot[k,j], self.z_plot[k,j], 'ko', linewidth=10)
+            ax.plot(self.x_plot[k,j], self.y_plot[k,j], self.z_plot[k,j], 'ko', markersize=10-j)
         
         # plot trajectory of EE
         ax.plot(self.x_plot[:k+1, -1], self.y_plot[:k+1, -1], self.z_plot[:k+1, -1], linewidth=1.5, color='b')

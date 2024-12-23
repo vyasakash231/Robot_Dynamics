@@ -1,13 +1,23 @@
 import numpy as np
+import numpy.linalg as LA
 from math import *
 
+from .utils import *
+
 class Robot_KM:
-    def __init__(self,n,alpha,a,d,d_nn):
+    def __init__(self,n,alpha,a,d,d_nn,joint_limits):
         self.n = n
         self.alpha = alpha
         self.a = a
         self.d = d
         self.d_nn = d_nn
+        self.joint_limits = joint_limits
+
+        self.step = 0
+
+        self.q_range = np.zeros((self.n, 2))
+        self.q_range[:,0] = self.joint_limits["lower"]
+        self.q_range[:,1] = self.joint_limits["upper"]
 
     def _transformation_matrix(self,theta):
         I = np.eye(4)
@@ -62,7 +72,7 @@ class Robot_KM:
             Jz[:,i] = np.reshape(cross_prod,(3,)) # conver 2D of shape (3,1) to 1D of shape (3,)
             Jw[:,i] = np.reshape(Z_i_0,(3,)) # conver 2D of shape (3,1) to 1D of shape (3,)
 
-        J = np.concatenate((Jz,Jw),axis=0)
+        jacobian = np.concatenate((Jz,Jw),axis=0)
         return Jz.astype(np.float64)
     
     def _f(self, i, Z, O):
@@ -80,7 +90,7 @@ class Robot_KM:
     def J_dot(self, theta, theta_dot, H=None):
         """ https://doi.org/10.48550/arXiv.2207.01794 """
         if H is None:
-            H = self.Hessian_matrix(theta)
+            H = self.Hessian(theta)
 
         Jz_dot = np.zeros((3,self.n))
         
@@ -88,14 +98,14 @@ class Robot_KM:
             Jz_dot[:,[i]] = H[:,:,i] @ theta_dot.reshape((self.n,1))
         return Jz_dot.astype(np.float64)
 
-    def Hessian_matrix(self, theta):
+    def Hessian(self, theta):
         """ https://doi.org/10.48550/arXiv.2207.01794 """
         R, O, _ = self._transformation_matrix(theta)
 
         R_n_0 = R[self.n-1,:,:]
         O_n_0 = np.transpose(np.array([O[:,self.n-1]]))  # O_n
         O_E_n = self.d_nn 
-        O_E_0 = O_n_0 + np.dot(R_n_0,O_E_n)  # O_E = O_n+1
+        O_E_0 = O_n_0 + np.dot(R_n_0, O_E_n)  # O_E = O_n+1
 
         # Add end-effector coord into O matrix
         O = np.hstack((O, O_E_0))  # [O_1, O_2, O_3, ... , O_n, O_E]
@@ -122,15 +132,15 @@ class Robot_KM:
         if J is None:
             J = self.J(theta)
         if H is None:
-            H = self.Hessian_matrix(theta)
+            H = self.Hessian(theta)
 
         # Calculate the manipulability of the robot
-        manipulability = np.sqrt(np.linalg.det(J @ J.T))
+        manipulability = np.sqrt(LA.det(J @ J.T))
 
         J_m = np.zeros((self.n,1))
         for i in range(self.n):
             column_1 = J @ H[:,:,i].T
-            column_2 = np.linalg.inv(J @ J.T)
+            column_2 = LA.inv(J @ J.T)
             
             # Reshape into a 9x1 vector (column-wise stacking)
             column_1 = column_1.flatten("F") # 'F' means column-major order (Fortran-style)
@@ -139,7 +149,7 @@ class Robot_KM:
             J_m[i] = manipulability * (column_1.T @ column_2)
         return J_m
 
-    def FK(self,theta):
+    def taskspace_coord(self,theta):
         _, O, P_00 = self._transformation_matrix(theta)
 
         X_cord = np.concatenate(([0],O[0,:],P_00[[0],0]))
@@ -147,7 +157,7 @@ class Robot_KM:
         Z_cord = np.concatenate(([0],O[2,:],P_00[[2],0]))
         return X_cord, Y_cord, Z_cord        
 
-    def IK(self, theta, theta_dot, theta_ddot, level="vel"):
+    def FK(self, theta, theta_dot, theta_ddot, level="vel"):
         if level == "vel":
             J = self.J(theta)
 
@@ -172,5 +182,53 @@ class Robot_KM:
             Xe_ddot = J @ theta_ddot + J_dot @ theta_dot    # end-effector acceleration
             _, _, P_00 = self._transformation_matrix(theta)  # end-effector position
             self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
-            return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), Xe_ddot.astype(np.float64)        
+            return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), Xe_ddot.astype(np.float64)      
+
+    def IK(self, Xd, X_dot, method=1):
+        Ex = np.array(Xd - self.Xe, dtype=float)
+
+        if method == 1:
+            if self.step == 0:
+                self.e0 = Ex
+            
+            Jc = np.eye((self.n))   # Jacobian for additional task
+
+            We, Wc, Wv = weights_1(3, self.n, self.q_range, self.q)
+
+            Je = self.J(self.q)
+            Jn = LA.inv(Je.T @ We @ Je + Jc.T @ Wc @ Jc + Wv) @ Je.T @ We
+            
+            # Adaptive gain
+            K = 5 * (1-np.exp(-self.step*0.01)) * np.exp((LA.norm(self.e0) - LA.norm(Ex)) / LA.norm(Ex))
+            
+            q_dot = K * (Jn @ X_dot)
+
+            self.q += q_dot.reshape(-1)
+
+            Ex = Xd - self.Xe
+
+            self.step += 1
+            return self.q
+        
+        if method == 2:
+            while LA.norm(Ex) > 0.002:  # 2.0mm 
+                i += 1
+        
+        if method == 3:
+            Wn = np.ones((self.n, self.n))  # diagonal damping matrix
+            while LA.norm(Ex) > 0.002:  # 2.0mm 
+                J = self.J(self.q)
+                J_pinv = LA.pinv(J)
+                Jm = self.manipulability_Jacobian(self.q)
+
+                q_null = (np.eye(self.n) - J_pinv @ J) @ Jm
+
+                A = J.T @ We @ J + Wn
+                g = J.T @ We @ Ex[:, np.newaxis] + q_null
+                q_dot = J_pinv @ Ex[:, np.newaxis] + LA.inv(A) @ g
+
+                self.q += q_dot.reshape(-1)
+
+                Ex = Xd - self.Xe
+            return self.q
     
