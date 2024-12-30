@@ -1,24 +1,21 @@
 import os
 import sys
 import numpy as np
-import numpy.linalg as LA
 np.set_printoptions(suppress=True)
 from sympy import *
 import scipy.interpolate
-import scipy.linalg
+import scipy.linalg as LA
+from scipy.signal import savgol_filter
 
 # from my_DMP.dmp import DMP
 from robot_model import Robot_Dynamics
 from controllers import Controller
 
-
 def smooth_velocity(pos, t, smoothing_factor=1.0):
     spline = scipy.interpolate.UnivariateSpline(t, pos, s=smoothing_factor)
     return spline.derivative()(t)
 
-
 # --------------------------------------------- Open Manipulator -------------------------------------------- #
-"""https://studywolf.wordpress.com/2013/12/05/dynamic-movement-primitives-part-2-controlling-a-system-and-comparison-with-direct-trajectory-control/"""
 
 # DH-Parameters
 n = 4  # DOF (No of Joint)
@@ -32,11 +29,7 @@ kinematic_property = {'dof':n, 'alpha':alpha, 'a':a, 'd':d, 'd_nn':d_nn}
 # Dyanamic ParametersX_cord
 mass = np.array([0.0, 0.1423463, 0.13467049, 0.23550927])
 
-COG_wrt_body = [Matrix([[0],[0],[0]]), 
-                Matrix([[0.106],[-0.014],[0]]), 
-                Matrix([[0.0933],[0],[0]]), 
-                Matrix([[0.06047],[0],[0]])]  # location of COG wrt to DH-frame / body frame
-
+COG_wrt_body = [Matrix([[0],[0],[0]]), Matrix([[0.106],[-0.014],[0]]), Matrix([[0.0933],[0],[0]]), Matrix([[0.06047],[0],[0]])]  # location of COG wrt to DH-frame / body frame
 MOI_about_body_CG = []  # MOI of the link about COG
 # for i in range(len(mass)):
     # MOI_about_body_CG.append(Matrix([[0,  0,  0],
@@ -45,7 +38,7 @@ MOI_about_body_CG = []  # MOI of the link about COG
 
 joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
                 'lower': np.radians([-180, -117, -90, -103]),
-                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180 deg/s)
+                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
                 }
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
@@ -53,12 +46,15 @@ robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG
 controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
-q = np.radians([53.0, 102.0, -106.0, -45.0])  # In radian
+q = np.radians([60.0, 102.0, -108.0, -40.0])  # In radian
 q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
-# Robot Goal State
-q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
+# Control Gain
+Kp_ts = np.diag([20,20,20])  # Proportional gains for joint space control
+Kd_ts = 1.5*np.sqrt(Kp_ts)   # Derivative gains for joint space control
+
+Kd_js = np.diag([5,5,5,5])     # Derivative gains for joint space control
 
 """ Trajectory tracking """
 # trajectory 
@@ -71,20 +67,19 @@ x_des = np.vstack((x_des, np.linspace(0.1, 0.18, x_des.shape[1])))  # (3,611)
 x_des[0,:] += 0.2
 x_des[1,:] += 0.1
 
-T = 5
-t = np.linspace(0, T, x_des.shape[1])  # demo trajectory timing
+t = np.linspace(0, 5, x_des.shape[1])  # demo trajectory timing
 dt = t[1] - t[0]
 
 pos_interp = scipy.interpolate.interp1d(t, x_des, axis=1)
 Xd = pos_interp(t)
 
-Xd_dot = np.array([smooth_velocity(Xd[i], t) for i in range(Xd.shape[0])])
-Xd_dot[:,[0]] = np.zeros((3,1))
+# Apply Savitzky-Golay filter to each dimension
+window_length = 51  # Must be odd; adjust based on your data
+poly_order = 3  # Adjust based on your data
+Xd_dot = np.array([savgol_filter(Xd[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd.shape[0])])
 
-# gain matrix
-Kp_ts = np.diag([100, 100, 100])
-Kd_ts = np.diag([10, 10, 10])
-Kp_js = np.diag([5, 5, 5, 5]) 
+# Calculate acceleration
+Xd_ddot = np.array([savgol_filter(Xd_dot[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd_dot.shape[0])])
 
 # Start plotting tool
 robot.plot_start(dt, t)
@@ -92,44 +87,29 @@ robot.plot_start(dt, t)
 # Robot Initial State in Task-Space
 robot.robot_KM.initial_state(q)
 
-# Start DMPS
-controller.start_dmp(no_of_DMPs=Xd.shape[0], no_of_basis=50, run_time=T, K=100, alpha=3.0)
-
-# learn Weights based on Demo
-controller.dmp.imitate_path(X_des=Xd)
-controller.dmp.reset_state()
-
-gamma = 1
+"""This formulation is from `Operational Space Control: A Theoretical and Empirical Comparison` section 3.2.2"""
 # Simulation loop
-for i in range(t.shape[0]-1):
+for i in range(Xd.shape[1]-1):   
     # Kinematic Model
     Xe, Xe_dot, _ = robot.robot_KM.FK(q, q_dot, q_ddot)
-
+    
     # task space error
     Ex = Xd[:,[i]] - Xe
     Ex_dot = Xd_dot[:,[i]] - Xe_dot
 
-    # DMP step
-    Xdmp, Xdmp_dot = controller.dmp.step(Xd[:,[-1]], gamma)
-
     # Kinematic Control
-    Xr_ddot = controller.KC.pd_dmp(Xdmp, Xdmp_dot, Xe, Xe_dot, Kp_ts, Kd_ts)
+    qr, qr_ddot = controller.KC.acceleration_based_control_1(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Kp_ts, Kd_ts, Kd_js)
 
-    # Feed-forward Control
-    # tau = controller.torque_control_2(Xr_ddot, q, q_dot)   # without null-space torque
-    tau = controller.torque_control_3(Xr_ddot, q, q_dot, Kp_js)    # with null-space torque
-    
-    # Forward Kinematics
+    # Torque Control
+    tau = controller.torque_control_1(q, q_dot, qr_ddot)
+
+    # Joint space error
+    Er = (qr - q).reshape((n, 1)) 
+
     X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
-    robot.memory(X_cord, Y_cord, Z_cord, None, tau, Xd[:,[i]], Ex, Ex_dot, None, Xdmp)
-
-    """
-    If the plant/Robot state drifts away from the state of the DMPs, we have to slow down the execution speed of the 
-    DMP to allow the plant time to catch up. To do this we just have to multiply the DMP timestep dt with gamma
-    """
-    gamma = 1 / (1 + LA.norm(Xdmp - Xe))
+    robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd[:,[i]], Ex, Ex_dot)
 
     # Robot Joint acceleration
     q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward")  # forward_int = None / euler_forward / rk4
     
-robot.show_plot_dmp()
+robot.show_plot_taux()

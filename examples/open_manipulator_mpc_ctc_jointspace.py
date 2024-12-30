@@ -85,8 +85,8 @@ q0_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
 
 # Generate Joint Referance Trajectory
-N = 25  # prediction horizon
-dt = 0.05  # sampling time
+N = 30  # prediction horizon
+dt = 0.01  # sampling time
 t, qd, qd_dot, qd_ddot = quantic_trajectory_vector(n, 0, 5.0, dt, q0, q_goal, q0_dot, q0_dot, q0_ddot, q0_ddot)
 x_ref = np.block([[qd], [qd_dot]])
 last_column = x_ref[:,[-1]]
@@ -102,14 +102,14 @@ q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 robot.robot_KM.initial_state(q)
 
 # Start MPC
-controller.start_mpc(x_ref, dt, N, state_cost=500.0, input_cost=10.0)
+controller.start_jointspace_mpc(x_ref, N, state_cost=100.0, input_cost=2.0)
 
 """This formulation essentially allows you to control the joint torques 
 in a manner that tracks the referance joint positions, velocities"""
 # Simulation loop
 for i in range(t.shape[0]-1):   
     # Feed-forward Control
-    tau = controller.mpc_ctc(q, q_dot, qd_ddot[:,i])
+    tau = controller.jointspace_mpc_ctc(q, q_dot, qd_ddot[:,i])
 
     E_joint = (q - qd[:,i])[:,np.newaxis]
     

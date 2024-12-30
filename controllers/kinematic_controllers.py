@@ -3,7 +3,6 @@ import sys
 import numpy as np
 from math import *
 
-
 class Kinematic_Control:
     def __init__(self, robot_model):
         self.robot = robot_model
@@ -13,121 +12,80 @@ class Kinematic_Control:
         q = self.robot.robot_KM.IK(Xd, X_dot, method=1)
         return q.reshape(-1)
     
-    def velocity_based_control_1(self, q, Ex, Xd_dot, Kp_ts):
-        # jacobian matrix
-        J = self.robot.robot_KM.J(q)
+    def pd_osc(self, Ex, Ex_dot, Kp, Kd):
+        # PD Control Law
+        Xd_ddot = Kp @ Ex + Kd @ Ex_dot
+        return Xd_ddot
 
-        # Manipulability Jacobian matrix
-        J_m = self.robot.robot_KM.manipulability_Jacobian(q, J)
+    def pd_dmp(self, Xdmp, Xdmp_dot, Xe, Xe_dot, Kp, Kd):
+        # PD Control Law
+        Ex = Xdmp - Xe
+        Ex_dot = Xdmp_dot - Xe_dot
 
-        # pseudoinverse of the Jacobian
-        J_inv = J.T @ np.linalg.inv(J @ J.T)    
+        Xd_ddot = Kp @ Ex + Kd @ Ex_dot
+        return Xd_ddot
 
-        """Eqn (10) from https://doi.org/10.1177/0278364908091463"""
-        # Xd_dot is the desired task space velocities, Xd is the desired task space position
-        # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
-        Xr_dot = Xd_dot + Kp_ts @ Ex  # reference task space velocity
-        
-        Lambda = -10
-
-        """Eqn (44) from https://doi.org/10.48550/arXiv.2207.01794 and Eqn (11) from https://doi.org/10.1177/0278364908091463"""
-        qr_dot_t1 = J_inv @ Xr_dot + (1/Lambda) * (np.eye(self.robot.n) - J_inv @ J) @ J_m   # In radians/s  (reference joint space velocity)
-        qr_dot_t1 = qr_dot_t1.reshape(-1)
-
-        # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + qr_dot_t1 * self.robot.dt  # In radians
-
-        # Numerical Integration
-        qr_ddot = (qr_dot_t1 - self.robot.robot_KM.qr_dot) / self.robot.dt     # this is creating much smoother torque
-        self.robot.robot_KM.qr_dot = qr_dot_t1
-
-        return self.robot.robot_KM.qr.astype(np.float64), qr_dot_t1.astype(np.float64), qr_ddot.astype(np.float64)
-    
-    def velocity_based_control_2(self, q, Ex, Xd_dot, Kp_ts):
-        self.robot.robot_KM.qr_dot = self.qr_dot_t1.reshape(-1)
-
-        # jacobian matrix
-        J = self.robot.robot_KM.J(q)
-
-        # Manipulability Jacobian matrix
-        J_m = self.robot.robot_KM.manipulability_Jacobian(q, J)
-
-        # pseudoinverse of the Jacobian
-        J_pinv = J.T @ np.linalg.inv(J @ J.T)    
-
-        """Eqn (10) from https://doi.org/10.1177/0278364908091463"""
-        # Xd_dot is the desired task space velocities, Xd is the desired task space position
-        # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
-        Xr_dot = Xd_dot + Kp_ts @ Ex  # reference task space velocity
-        
-        Lambda = -5
-
-        """Eqn (44) from https://doi.org/10.48550/arXiv.2207.01794 and Eqn (11) from https://doi.org/10.1177/0278364908091463"""
-        self.qr_dot_t1 = J_pinv @ Xr_dot + (1/Lambda) * (np.eye(self.robot.n) - J_pinv @ J) @ J_m   # In radians/s  (reference joint space velocity)
-
-        # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * self.robot.dt  # In radians
-
-        qr_ddot = np.zeros((self.robot.n))     # this is creating much smoother torque
-        return self.robot.robot_KM.qr.astype(np.float64), self.robot.robot_KM.qr_dot.astype(np.float64), qr_ddot.astype(np.float64)
-         
-    def acceleration_based_control_1(self, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_task_space, Kd_task_space):
-        # jacobian matrix
-        J = self.robot.robot_KM.J(q)
-
-        # Hessian Matrix
-        H = self.robot.robot_KM.Hessian(q)
-
-        # jacobian_dot matrix
-        J_dot = self.robot.robot_KM.J_dot(q, q_dot, H)
-
-        # pseudoinverse of the Jacobian
-        J_inv = J.T @ np.linalg.inv(J @ J.T)    
-
-        """Eqn (26) from https://doi.org/10.1177/0278364908091463"""
-        # Xd_ddot is the desired task space acceleration, Xd_dot is the desired task space velocity, Xd is the desired task space position
-        # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
-        # Ex_dot = Xd_dot - Xe_dot is the task-space velocity error, where, Xe is the end-effector velocity
-        Xr_ddot = Xd_ddot + Kd_task_space @ Ex_dot + Kp_task_space @ Ex 
-
-        """Eqn (45) from https://doi.org/10.1177/0278364908091463"""
-        qr_ddot = J_inv @ (Xr_ddot - J_dot @ q_dot[:, np.newaxis])  # In radians/s^2
-        qr_ddot = qr_ddot.reshape(-1)
-
-        # Numerical Differentation
-        self.robot.robot_KM.qr_dot = self.robot.robot_KM.qr_dot + qr_ddot * self.robot.dt  # In radians/s
-
-        # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * self.robot.dt  # In radians
-        return self.robot.robot_KM.qr.astype(np.float64), qr_ddot.astype(np.float64)
-        
     """Simplified Acceleration-based Control Variation 1 (With Null Space Pre-multiplication of M)"""
-    def acceleration_based_control_2(self, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_task_space, Kd_task_space, kd_joint_space):
+    def acceleration_based_control_1(self, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_ts, Kd_ts, kd_js):
         # jacobian matrix
-        J = self.robot.robot_KM.J(q)
+        _,J,_ = self.robot.robot_KM.J(q)    # J:(6,n), Jv:(3,n), Jw:(3,n)
 
         # Hessian Matrix
         H = self.robot.robot_KM.Hessian(q)
-
+        
         # Manipulability Jacobian matrix
-        J_m = self.robot.robot_KM.manipulability_Jacobian(q, J, H)
+        # J_m = self.robot.robot_KM.manipulability_Jacobian(q, J, H)
+
+        """
+        A simple optimization criterion for redundancy resolution, with a cost function:
+                    g(q) = (1/2) * (q - q0)^T * Kw * (q - q0)
+                    del_g = Kw * (q - q0)  => J_m
+        """
+        Kw = np.eye(self.robot.n)
+        J_m = Kw @ (q - self.robot.robot_KM.q)[:, np.newaxis]
+        
 
         # jacobian_dot matrix
-        J_dot = self.robot.robot_KM.J_dot(q, q_dot, H)
+        _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot, H)    # J_dot, Jv_dot, Jw_dot
 
-        J_inv = J.T @ np.linalg.inv(J @ J.T)    # pseudoinverse of the Jacobian
+        J_pinv = np.linalg.pinv(J)    # pseudoinverse of the Jacobian
 
         """Eqn (26) from https://doi.org/10.1177/0278364908091463"""
         # Xd_ddot is the desired task space acceleration, Xd_dot is the desired task space velocity, Xd is the desired task space position
-        # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
-        # Ex_dot = Xd_dot - Xe_dot is the task-space velocity error, where, Xe is the end-effector velocity
-        Xr_ddot = Xd_ddot + Kd_task_space @ Ex_dot + Kp_task_space @ Ex 
+        Xr_ddot = Xd_ddot + Kd_ts @ Ex_dot + Kp_ts @ Ex 
 
         """Eqn (40) from https://doi.org/10.1177/0278364908091463"""
-        zeta = -(kd_joint_space @ q_dot[:, np.newaxis] + 30 * J_m)
+        zeta = -(kd_js @ q_dot[:, np.newaxis] + 50 * J_m)
 
         """Eqn (39) from https://doi.org/10.1177/0278364908091463"""
-        qr_ddot = J_inv @ (Xr_ddot - J_dot @ q_dot[:, np.newaxis]) + (np.eye(self.robot.n) - J_inv @ J) @ zeta   # In radians/s^2
+        qr_ddot = J_pinv @ (Xr_ddot - J_dot @ q_dot[:, np.newaxis]) + (np.eye(self.robot.n) - J_pinv @ J) @ zeta   # In radians/s^2
+        qr_ddot = qr_ddot.reshape(-1)
+
+        # Numerical Differentation
+        # self.robot.robot_KM.qr_dot = self.robot.robot_KM.qr_dot + qr_ddot * self.robot.dt  # In radians/s
+
+        # Numerical Differentation
+        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * self.robot.dt  # In radians
+        return self.robot.robot_KM.qr.astype(np.float64), qr_ddot.astype(np.float64)
+        
+    """Simplified Acceleration-based Control Variation 2 (Without Null Space Pre-multiplication of M)"""
+    def acceleration_based_control_2(self, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_ts, Kd_ts):
+        # jacobian matrix
+        _,J,_ = self.robot.robot_KM.J(q)    # J:(6,n), Jv:(3,n), Jw:(3,n)
+
+        # jacobian_dot matrix
+        _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot)     # J_dot, Jv_dot, Jw_dot
+
+        J_pinv = np.linalg.pinv(J)     # pseudoinverse of the Jacobian
+
+        """Eqn (26) from https://doi.org/10.1177/0278364908091463"""
+        # Xd_ddot is the desired task space acceleration, Xd_dot is the desired task space velocity, Xd is the desired task space position
+        # Ex = Xd - Xe is the task-space position error, where, Xe is the end-effector position
+        # Ex_dot = Xd_dot - Xe_dot is the task-space velocity error, where, Xe is the end-effector velocity
+        Xr_ddot = Xd_ddot + Kd_ts @ Ex_dot + Kp_ts @ Ex 
+
+        """Eqn (45) from https://doi.org/10.1177/0278364908091463"""
+        qr_ddot = J_pinv @ (Xr_ddot - J_dot @ q_dot[:, np.newaxis])    # In radians/s^2
         qr_ddot = qr_ddot.reshape(-1)
 
         # Numerical Differentation
@@ -135,5 +93,5 @@ class Kinematic_Control:
 
         # Numerical Differentation
         self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * self.robot.dt  # In radians
-        return self.robot.robot_KM.qr.astype(np.float64), qr_ddot.astype(np.float64)
+        return self.robot.robot_KM.qr.astype(np.float64), self.robot.robot_KM.qr_dot.astype(np.float64), qr_ddot.astype(np.float64)
         

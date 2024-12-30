@@ -228,7 +228,7 @@ class DMP:
             ddX_track = np.append(ddX_track, (self.K * (self.X_g - X_track[:,[-1]]) - self.D * dX_track[:,[-1]] - self.K * (self.X_g - self.X_0) * self.cs.theta + self.K * f) / tau, axis=1)
         return X_track, dX_track, ddX_track 
     
-    def step(self, X_g, tau=1):
+    def step(self, X_g, gamma, tau=1):
         """
         DMP 2nd order system in vector form (for 3 DOF system);
         τ*dV = K*(X_g - X) - D*V - K*(X_g - X_0)*θ + K*f
@@ -282,10 +282,10 @@ class DMP:
         B[0::2,:] = (self.K/tau) * (X_g - (X_g - self.X_0) * self.cs.theta + f)
 
         # solve above dynamical system using Euler-forward method / Runge-kutta 4th order / Exponential Integrators 
-        dY_dt = rk4_step(Y,A,B,self.cs.dt)
+        dY_dt = rk4_step(Y,A,B,gamma*self.cs.dt)
         # dY_dt = forward_euler(Y,A,B,self.cs.dt)
 
-        Y = Y + dY_dt * self.cs.dt
+        Y = Y + dY_dt * gamma*self.cs.dt
         
         # extract position-X, velocity-V, acceleration data from current state vector-Y values
         self.X = Y[1::2, :]   # extract position data from state vector Y

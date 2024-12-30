@@ -24,6 +24,7 @@ class RobotPlotter:
         self.e_task = getattr(simulation, 'position_error_plot', None)
         self.de_task = getattr(simulation, 'velocity_error_plot', None)
         self.ext_force = getattr(simulation, 'wrench', None)
+        self.Xdmp = getattr(simulation, "dmp_traj", None)
 
         if self.T is None:
             self.T = np.linspace(0, 1, self.x_plot.shape[0]-1) 
@@ -40,7 +41,9 @@ class RobotPlotter:
             self.de_task = np.array(self.de_task, dtype=np.float64).T
         if self.ext_force is not None:
             self.ext_force = np.array(self.ext_force, dtype=np.float64)
-
+        if self.Xdmp is not None:
+            self.Xdmp_plot = np.array(self.Xdmp, dtype=np.float64).T
+        
     """ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% """
     def setup_free_fall_plot(self):
         self.fig = plt.figure(figsize=(12, 10))
@@ -68,6 +71,16 @@ class RobotPlotter:
         self.axs.append(self.fig.add_subplot(gs[0,3]))
         self.axs.append(self.fig.add_subplot(gs[1,3]))
         return self.create_animation(self.update_computed_torque_in_task_space)
+    
+    def setup_task_space_dmp(self):
+        self.fig = plt.figure(figsize=(12, 10))
+        gs = gridspec.GridSpec(2, 3)
+        
+        self.axs = []
+        self.axs.append(self.fig.add_subplot(gs[:,:2], projection='3d'))
+        self.axs.append(self.fig.add_subplot(gs[0,2]))
+        self.axs.append(self.fig.add_subplot(gs[1,2]))
+        return self.create_animation(self.update_task_space_dmp)        
     
     def setup_impedence_control_in_task_space(self):
         self.fig = plt.figure(figsize=(12, 10))
@@ -103,13 +116,20 @@ class RobotPlotter:
     def update_computed_torque_in_task_space(self, frame):
         # Robot visualization
         self._plot_robot(self.axs[0], frame)
-        self._plot_joint_errors(self.axs[1], frame)  # Error plot
         self._plot_torques(self.axs[2], frame)  # Torque plot
         self._plot_position_errors(self.axs[3], frame)  # Error plot
         self._plot_velocity_errors(self.axs[4], frame)   # Error plot
         self._set_3d_plot_properties(self.axs[0], 9, -25)   # set graph properties 
         return self.axs
 
+    def update_task_space_dmp(self, frame):
+        # Robot visualization
+        self._plot_robot(self.axs[0], frame)
+        self._plot_position_errors(self.axs[1], frame)  # Error plot
+        self._plot_torques(self.axs[2], frame)  # Torque plot
+        self._set_3d_plot_properties(self.axs[0], 9, -25)   # set graph properties 
+        return self.axs
+      
     def update_impedence_control_in_task_space(self, frame):
         # Robot visualization
         self._plot_robot(self.axs[0], frame)
@@ -127,11 +147,18 @@ class RobotPlotter:
                       self.ext_force[k, 2], length=0.05, normalize=True, linewidths=1.25, colors=[0,0,0])
         except:
             pass
+        
         try:
             # Plot desired trajectory
             ax.plot(self.Xd_plot[0,:], self.Xd_plot[1,:], self.Xd_plot[2,:], '-r', linewidth=2)
         except:
             pass
+        
+        # try:   # only for debugging
+        #     # Plot DMP trajectory
+        #     ax.plot(self.Xdmp_plot[0, :k+1], self.Xdmp_plot[1, :k+1], self.Xdmp_plot[2, :k+1], linewidth=1.5, color='g')
+        # except:
+        #     pass
 
         for j in range(self.x_plot.shape[1]):
             ax.plot(self.x_plot[k,j:j+2], self.y_plot[k,j:j+2], self.z_plot[k,j:j+2], '-', linewidth=10-j)

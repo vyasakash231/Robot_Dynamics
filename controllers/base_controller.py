@@ -1,11 +1,12 @@
 import os
 import sys
 import numpy as np
+import numpy.linalg as LA
 np.set_printoptions(suppress=True)
 from sympy import *
 
 from .kinematic_controllers import Kinematic_Control
-from .mpc_controller import Linear_MPC
+from .mpc_controller import Linear_MPC_JointSpace, Linear_MPC_TaskSpace
 from .dmp import DMP
 
 class Controller:
@@ -13,15 +14,22 @@ class Controller:
         self.robot = robot_model
         self.KC = Kinematic_Control(self.robot)
 
-    def start_mpc(self, x_ref, dt, N, state_cost, input_cost):
-        self.mpc_controller = Linear_MPC(self.robot.n, x_ref, dt, N, state_cost, input_cost)
+    def start_jointspace_mpc(self, x_ref, N, state_cost, input_cost):
+        self.jointspace_mpc_controller = Linear_MPC_JointSpace(self.robot.n, x_ref, N, state_cost, input_cost)
         q_min = self.robot.joint_limits["lower"]
         q_max = self.robot.joint_limits["upper"]
         q_dot = self.robot.joint_limits["vel_max"]
-        self.mpc_controller.set_joint_limits(q_min, q_max, q_dot)
+        self.jointspace_mpc_controller.set_joint_limits(q_min, q_max, q_dot)
 
-    def start_dmp(self):
-        self.dmp = DMP(no_of_DMPs=3, no_of_basis_func=40, K=1000.0, dt=self.robot.dt, alpha=3.0)
+    def start_taskspace_mpc(self, x_ref, N, state_cost, input_cost):
+        self.taskspace_mpc_controller = Linear_MPC_TaskSpace(self.robot.n, x_ref, N, state_cost, input_cost)
+        q_min = self.robot.joint_limits["lower"]
+        q_max = self.robot.joint_limits["upper"]
+        q_dot = self.robot.joint_limits["vel_max"]
+        self.taskspace_mpc_controller.set_joint_limits(q_min, q_max, q_dot)
+
+    def start_dmp(self, no_of_DMPs, no_of_basis, run_time, K, alpha):
+        self.dmp = DMP(no_of_DMPs=no_of_DMPs, no_of_basis_func=no_of_basis, T=run_time, K=K, dt=self.robot.dt, alpha=alpha)
 
     def q_tilda(self, q, qd):
         """ Computes the shortest angular distance between current position (q) and desired position (qd),
@@ -71,16 +79,18 @@ class Controller:
         tau = M @ (qd_ddot[:, np.newaxis] - u) + C + G
         return tau
     
-    """Not Working Yet"""
-    def mpc_ctc(self, q, q_dot, qd_ddot):
+    def jointspace_mpc_ctc(self, q, q_dot, qd_ddot):
         # Get desired acceleration from MPC
         state_vec = np.hstack((q, q_dot)).reshape(-1,1)  # (2*n, 1)
-        u = self.mpc_controller.compute_control(state_vec)
+        u = self.jointspace_mpc_controller.compute_control(state_vec)
         
         # Compute torque using CTC
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
         tau = M @ (qd_ddot[:, np.newaxis] - u) + C + G
         return tau
+    
+    def taskspace_mpc_ctc(self, X, X_dot, q, q_dot):
+        pass
 
     # WITHOUT contact force feedback
     def impedence_control_static(self, q, q_dot, E, E_dot, Dd, Kd):
@@ -90,7 +100,7 @@ class Controller:
         exerted on it. Classic impedance control tries to establish a mass-spring-damper relationship between 
         external forces and robot motion.
         """
-        J = self.robot.robot_KM.J(q)
+        _,J,_ = self.robot.robot_KM.J(q)
 
         M, C_vec, _, G = self.robot.compute_dynamics(q, q_dot)
        
@@ -102,10 +112,10 @@ class Controller:
     def impedence_control_TT_1(self, q, q_dot, E, E_dot, Xd_ddot, Dd, Kd):
         """Impedance control with weighted pseudo-inverse"""
         # Task Jacobian
-        J = self.robot.robot_KM.J(q)
-        J_inv = J.T @ np.linalg.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
+        _,J,_ = self.robot.robot_KM.J(q)   # only linear velocity
+        J_inv = J.T @ LA.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
 
-        J_dot = self.robot.robot_KM.J_dot(q, q_dot)
+        _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot)
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
         
         # Compute desired acceleration
@@ -118,10 +128,10 @@ class Controller:
     
     # Guarantee of asymptotic convergence to zero tracking error (on Xd(t)) when F=0 (no contact situation)
     def impedence_control_TT_2(self, q, q_dot, E, E_dot, Xd_dot, Xd_ddot, Dd, Kd):
-        J = self.robot.robot_KM.J(q)
-        J_inv = J.T @ np.linalg.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
+        _,J,_ = self.robot.robot_KM.J(q)    # only linear velocity
+        J_inv = J.T @ LA.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
 
-        J_dot = self.robot.robot_KM.J_dot(q, q_dot)
+        _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot)
 
         M, _, C, G = self.robot.compute_dynamics(q, q_dot)    # here, C is matrix
         
@@ -135,62 +145,9 @@ class Controller:
     # (Passive) Dynamical-System based Impedence Controller
     def passive_control(self):
         pass
-
-    """Velocity-based Control with Joint Velocity Integration"""
-    def velocity_based_torque_control_1(self, q, q_dot, qr, qr_dot, qr_ddot, Kd, Kp):
-        # Define tracking error    
-        e = (qr - q).reshape((self.robot.n, 1)) 
-        e_dot = (qr_dot - q_dot).reshape((self.robot.n, 1)) 
-
-        # Feed-back PD-control Input
-        u = qr_ddot[:,np.newaxis]
-
-        # Control Law
-        M, C, _, G = self.robot.compute_dynamics(qr, qr_dot)
-
-        """Eqn (14) from https://doi.org/10.1177/0278364908091463"""
-        tau = M @ u + C + G + Kd @ e_dot + Kp @ e
-        return tau
-
-    """Velocity-based Control with Joint Velocity Integration"""
-    def velocity_based_torque_control_2(self, q, q_dot, qr_dot, qr_ddot, Kd):
-        # Define tracking error    
-        e_dot = (qr_dot - q_dot).reshape((self.robot.n, 1)) 
-
-        # Feed-back PD-control Input
-        u = qr_ddot[:,np.newaxis]
-
-        # Control Law
-        M, C, _, G = self.robot.compute_dynamics(q, q_dot)
-
-        """Eqn (23) from https://doi.org/10.1177/0278364908091463"""
-        tau = M @ u + C + G + Kd @ e_dot
-        return tau
-    
-    def torque_control_1(self, q, q_dot, qr_ddot, Kd):
-        J = self.robot.robot_KM.J(q)
-
-        J_inv = J.T @ np.linalg.inv(J @ J.T)    # pseudoinverse of the Jacobian
-
-        # Hessian Matrix
-        H = self.robot.robot_KM.Hessian(q)
-
-        # Manipulability Jacobian matrix
-        J_m = self.robot.robot_KM.manipulability_Jacobian(q, J, H)
-
-        """Eqn (46) from https://doi.org/10.1177/0278364908091463"""
-        zeta = -(Kd @ q_dot[:, np.newaxis] + 30 * J_m)
-        
-        # Feed-back PD-control Input
-        u = qr_ddot[:,np.newaxis]
-
-        # Control Law
-        M, C, _, G = self.robot.compute_dynamics(q, q_dot)
-        tau = M @ u + C + G + (np.eye(self.robot.n) - J_inv @ J) @ zeta
-        return tau
     
     """Simplified Acceleration-based Control Variation 1 (With Null Space Pre-multiplication of M)"""
-    def torque_control_2(self, q, q_dot, qr_ddot):
+    def torque_control_1(self, q, q_dot, qr_ddot):
         u = qr_ddot[:,np.newaxis]
 
         # Control Law
@@ -199,5 +156,37 @@ class Controller:
         """Eqn (38) from https://doi.org/10.1177/0278364908091463"""
         tau = M @ u + C + G
         return tau
+
+    """https://studywolf.wordpress.com/2013/09/17/robot-control-4-operation-space-control/"""
+    def torque_control_2(self, Xd_ddot, q, q_dot):
+        _,J,_ = self.robot.robot_KM.J(q)    # only linear velocity
+        
+        M, C, _, G = self.robot.compute_dynamics(q, q_dot)
+        Mx = self.robot.Mx(M, J)
+
+        tau = J.T @ Mx @ Xd_ddot + G
+        return tau
+    
+    """https://studywolf.wordpress.com/2013/09/17/robot-control-5-controlling-in-the-null-space/"""
+    def torque_control_3(self, Xd_ddot, q, q_dot, Kp):
+        _,J,_ = self.robot.robot_KM.J(q)    # only linear velocity
+
+        """Null space control"""
+        ## Option 1 (causing Torque chattering)
+        # tau_null = -Kp @ (q - self.robot.robot_KM.q)[:, np.newaxis]  # secondary controller working to keep the arm near its joint angles default resting positions.
+
+        ## Option 2  (No Torque chattering)
+        tau_null = self.robot.robot_KM.manipulability_Jacobian(q, J)   # Manipulability Jacobian matrix
+        
+        M, C, _, G = self.robot.compute_dynamics(q, q_dot)
+        Mx = self.robot.Mx(M, J)
+
+        # dynamically consistent generalized inverse
+        """https://www.roboticsproceedings.org/rss07/p31.pdf"""
+        J_pinv_T = Mx @ J @ LA.inv(M)
+        
+        tau = J.T @ Mx @ Xd_ddot + G + (np.eye(self.robot.n) - J.T @ J_pinv_T) @ tau_null
+        return tau
+
 
     

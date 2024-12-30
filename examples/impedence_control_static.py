@@ -65,12 +65,12 @@ i = 0
 # Simulation loop
 while True:   
     external_force = np.array([[0], [0], [0]])
-    if i > 160 and i < 200:
-        external_force = np.array([[0], [0], [2.4]])
-    if i > 200 and i < 230:
-        external_force = np.array([[0], [1.5], [0]])
-    if i > 255 and i < 290:
-        external_force = np.array([[1], [1], [1]])        
+    # if i > 160 and i < 200:
+    #     external_force = np.array([[0], [0], [2.4]])
+    # if i > 200 and i < 230:
+    #     external_force = np.array([[0], [1.5], [0]])
+    # if i > 255 and i < 290:
+    #     external_force = np.array([[1], [1], [1]])        
     
     # Kinematic Model
     Xe, Xe_dot, _ = robot.robot_KM.FK(q, q_dot, q_ddot)
@@ -82,7 +82,7 @@ while True:
     # Feed-forward Control
     tau = controller.impedence_control_static(q, q_dot, Ex, Ex_dot, Dd, Kd)
 
-    X_cord, Y_cord, Z_cord = robot.robot_KM.EE(q)
+    X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
 
     robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd, Ex, Ex_dot, external_force)
 

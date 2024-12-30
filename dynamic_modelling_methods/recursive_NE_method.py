@@ -92,7 +92,8 @@ class RNEA:
             self.n_j_0[j] = self.n_i_0[j] + self.n_j_0[j+1] + self.b_i0[:,j+1].cross(self.f_j_0[j]) + self.r_i0[:,j].cross(self.f_j_0[j+1])
             self.tau[j] = self.Z_n_0[j].T * self.n_j_0[j]  # Driving Torque
 
-    def mcg_matrix(self, alpha, a, d, m):
+    """Joint Space"""
+    def mcg_jointspace(self, alpha, a, d, m):
         self.numeric_DH = [alpha, a, d]
 
         self._forward_pass()  # Perform forward pass
@@ -131,7 +132,8 @@ class RNEA:
         C_mat = self.compute_coriolis_matrix()
 
         return simplify(self.M), simplify(self.C_vec), simplify(C_mat), simplify(self.G)  # symbolic
-      
+    
+    """Joint Space"""
     def compute_coriolis_matrix(self):
         # C matrix formulation
         C = symarray('M',(self.n, self.n))
@@ -144,6 +146,11 @@ class RNEA:
                     b_terms += (diff(self.M[i, k], self.theta_vec[j]) - diff(self.M[j, k], self.theta_vec[i])) * self.theta_dot_vec[k]
                 C[i, j] = (1/2) * (a_terms + b_terms)
         return C
+    
+    def mcg_taskspace(self):
+        self.Jacobian = symbolic_Jacobian(self.n, self.alpha, self.a, self.d, self.theta_vec, self.d_nn)
+        
+
     
     def save_equations(self, M_sym, C_vec_sym, C_mat_sym, G_sym, filename='lagrangian_eqs'):
         """Save symbolic equations to a file"""

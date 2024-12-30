@@ -61,7 +61,8 @@ class Robot_Dynamics:
         G = self.equations['G_lambda'](*G_args)
         return M, C_vec, C_mat, G
     
-    def memory(self, X_cord, Y_cord, Z_cord, Er=None, tau=None, Xd=None, Ex=None, Ex_dot=None, wrench=None):
+    def memory(self, X_cord, Y_cord, Z_cord, Er=None, tau=None, Xd=None, 
+               Ex=None, Ex_dot=None, wrench=None, dmp_trajectory=None):
         self.X_plot.append(X_cord)
         self.Y_plot.append(Y_cord)
         self.Z_plot.append(Z_cord)
@@ -78,8 +79,10 @@ class Robot_Dynamics:
             self.velocity_error_plot.append(Ex_dot.reshape(-1))
         if wrench is not None:
             self.wrench.append(wrench.reshape(-1))
+        if dmp_trajectory is not None:
+            self.dmp_traj.append(dmp_trajectory.reshape(-1))
 
-    def forward_dynamics(self, q, q_dot, tau, forward_int=None, ext_force=None):
+    def forward_dynamics(self, q, q_dot, tau, forward_int=None, ext_force=None, joint_limits=None):
         """ 
         Using Brute Force Approach: 
         M(theta) * theta_ddot + C(theta, theta_dot) + G(theta) = tau
@@ -92,14 +95,14 @@ class Robot_Dynamics:
         * For, (n > 6) we have to use Articulated Body Algorithm, it's time complexity is O(n) 
         """
         M, C_vec, _, G = self.compute_dynamics(q, q_dot)  
-            
+
         if ext_force is None:
             b = tau - (C_vec + G)
         else:
-            J = self.robot_KM.J(q)
+            _,J,_ = self.robot_KM.J(q)    # only linear velocity
             if ext_force.ndim == 1:
                 ext_force = ext_force.reshape((3,1))
-            b = tau - (C_vec + G - J.T @ ext_force)
+            b = tau - (C_vec + G - J.T @ ext_force) 
 
         b = b.astype(np.float64)  # Ensure b is float64
         q_ddot = np.linalg.solve(M, b).reshape(-1)
@@ -173,14 +176,14 @@ class Robot_Dynamics:
         if abs(np.linalg.det(Mx_inv)) >= threshold:
             Mx = LA.inv(Mx_inv)
         else:
-            Mx = LA.pinv(Mx_inv, rcond=threshold * 0.1)
+            Mx = LA.pinv(Mx_inv)
         return Mx
 
+    """Eqn (3.11) from the Book -> Cartesian Impedance Control of Redundant and Flexible-Joint Robots"""
     def Cx(self, Mq, Cq, J, J_dot):
         J_inv = J.T @ np.linalg.inv(J @ J.T)   # pseudoinverse of the Jacobian
-        Mx = self.Mx(Mq, J)
-        Cx = J_inv.T @ Cq @ J_inv - Mx @ J_dot @ J_inv
-        return Cx 
+        Cx = J_inv.T @ (Cq - Mq @ J_inv @ J_dot) @ J_inv
+        return Cx  
 
     """Eqn (25) from https://doi.org/10.1109/JRA.1987.1087068"""
     def Gx(self, Gq, J):
@@ -190,8 +193,8 @@ class Robot_Dynamics:
 
     def compute_MCGx(self, Mq, Cq, Gq, J, J_dot):
         Mx = self.Mx(Mq, J)
-        Cx = self.Cx(Mq, Cq, J, J_dot)
-        Gx = self.CGx(Gq, J)
+        Cx = self.Cx(Mq, Cq, J, J_dot)   # This is a matrix not vector
+        Gx = self.Gx(Gq, J)
         return Mx, Cx, Gx
     
     def free_fall(self, q, q_dot, tau=None):
@@ -225,6 +228,12 @@ class Robot_Dynamics:
         anim = plotter.setup_computed_torque_in_task_space()
         plotter.show()
 
+    def show_plot_dmp(self):
+        """Animation Setup"""
+        plotter = RobotPlotter(self)
+        anim = plotter.setup_task_space_dmp()
+        plotter.show()
+
     def show_plot_impedence(self):
         """Animation Setup"""
         plotter = RobotPlotter(self)
@@ -248,3 +257,4 @@ class Robot_Dynamics:
         self.tau_plot = []
         self.Xd_plot = []
         self.wrench = []
+        self.dmp_traj = []

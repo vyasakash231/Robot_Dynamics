@@ -2,7 +2,7 @@ from math import *
 import numpy as np
 
 
-def apply_joint_limits(q, q_dot, q_limits, k_spring=250, b_damper=25):
+def apply_joint_limits(q, q_dot, q_limits, k_spring=2.5, b_damper=0.5):
     """Add spring-damper forces when near limits"""
     q_min, q_max = q_limits["lower"], q_limits["upper"]
     limit_force = np.zeros_like(q)

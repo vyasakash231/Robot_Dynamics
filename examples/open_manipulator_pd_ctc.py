@@ -77,16 +77,16 @@ robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG
 controller = Controller(robot)
 
 # Robot Initial State (Joint Space)
-q = np.radians([53.0, 102.0, -106.0, -45.0])  # In radian
-q_dot = np.array([0, 0, 0, 0])  # In radian/sec
-q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
+q0 = np.radians([53.0, 102.0, -106.0, -45.0])  # In radian
+q0_dot = np.array([0, 0, 0, 0])  # In radian/sec
+q0_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
 # Robot Goal State
 q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
 
 # Generate Joint Referance Trajectory
 dt = 0.01
-t, qd, qd_dot, qd_ddot = quantic_trajectory_vector(n, 0, 10.0, dt, q, q_goal, q_dot, q_dot, q_ddot, q_ddot)
+t, qd, qd_dot, qd_ddot = quantic_trajectory_vector(n, 0, 10.0, dt, q0, q_goal, q0_dot, q0_dot, q0_ddot, q0_ddot)
 
 # gain matrix
 Kp = np.diag([200, 200, 200, 200])
@@ -96,6 +96,8 @@ Kd = np.diag([25, 25, 25, 25])
 robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
+q = np.radians([45.0, 90.0, -90.0, -45.0])  # In radian
+q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 robot.robot_KM.initial_state(q)
 
 """This formulation essentially allows you to control the joint torques 

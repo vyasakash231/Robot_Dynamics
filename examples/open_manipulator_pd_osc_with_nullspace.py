@@ -53,9 +53,9 @@ q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
 # Control Gain
-Kp_ts = np.diag([30, 30, 30])   # Proportional gains for joint space control
-Kp_js = np.diag([15, 15, 15, 15]) 
-Kd_js = np.diag([20, 20, 20, 20])   # Derivative gains for joint space control
+Kp_ts = np.diag([250, 250, 250])   # Proportional gains for joint space control
+Kd_ts = np.sqrt(Kp_ts)  # Derivative gains for joint space control
+Kp_js = np.diag([10, 10, 10, 10]) 
 
 """ Trajectory tracking """
 # trajectory 
@@ -73,10 +73,6 @@ dt = t[1] - t[0]
 
 pos_interp = scipy.interpolate.interp1d(t, x_des, axis=1)
 Xd = pos_interp(t)
-
-"""https://stackoverflow.com/questions/24633618/what-does-numpy-gradient-do"""
-# Xd_dot = np.gradient(Xd, dt, axis=1, edge_order=2) 
-# Xd_dot[:,[0]] = np.zeros((3,1))
 
 # Apply Savitzky-Golay filter to each dimension
 # window_length = 51  # Must be odd; adjust based on your data
@@ -96,7 +92,7 @@ robot.robot_KM.initial_state(q)
 """ This formulation essentially allows you to control the joint torques 
 in a manner that tracks the referance joint positions, velocities """
 # Simulation loop
-for i in range(Xd.shape[1]):   
+for i in range(Xd.shape[1]-1):   
     # Kinematic Model
     Xe, Xe_dot, _ = robot.robot_KM.FK(q, q_dot, q_ddot)
 
@@ -105,16 +101,13 @@ for i in range(Xd.shape[1]):
     Ex_dot = Xd_dot[:,[i]] - Xe_dot
 
     # Kinematic Control
-    qr, qr_dot, qr_ddot = controller.KC.velocity_based_control_2(q, Ex, Xd_dot[:,[i]], Kp_ts)
+    Xr_ddot = controller.KC.pd_osc(Ex, Ex_dot, Kp_ts, Kd_ts)
 
     # Feed-forward Control
-    tau = controller.torque_control_1(q, q_dot, qr_ddot, Kd_js)
+    tau = controller.torque_control_3(Xr_ddot, q, q_dot, Kp_js)
     
-    # Joint space error
-    Er = (qr - q).reshape((n, 1)) 
-
     X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
-    robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd[:,[i]], Ex, Ex_dot)
+    robot.memory(X_cord, Y_cord, Z_cord, None, tau, Xd[:,[i]], Ex, Ex_dot)
     
     # Robot Joint acceleration
     q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward")  # forward_int = None / euler_forward / rk4

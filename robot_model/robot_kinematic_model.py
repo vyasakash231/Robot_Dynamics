@@ -56,7 +56,7 @@ class Robot_KM:
         R, O, _ = self._transformation_matrix(theta)
 
         R_n_0 = R[self.n-1,:,:]
-        O_n_0 = np.transpose(np.array([O[:,self.n-1]]))
+        O_n_0 = O[:,[self.n-1]]
         O_E_n = self.d_nn 
         O_E = O_n_0 + np.dot(R_n_0,O_E_n)
 
@@ -64,82 +64,82 @@ class Robot_KM:
         Jw = np.zeros((3,self.n))
 
         for i in range(self.n):
-            Z_i_0 = np.transpose(np.array([R[i,:,2]]))
-            O_i_0 = np.transpose(np.array([O[:,i]]))
+            Rm = R[i,:,:]
+            Z_i_0 = Rm[:,[2]]
+            O_i_0 = O[:,[i]]
             O_E_i_0 = O_E - O_i_0
-
+            
             cross_prod = np.cross(Z_i_0, O_E_i_0, axis=0)
-            Jz[:,i] = np.reshape(cross_prod,(3,)) # conver 2D of shape (3,1) to 1D of shape (3,)
-            Jw[:,i] = np.reshape(Z_i_0,(3,)) # conver 2D of shape (3,1) to 1D of shape (3,)
+            
+            Jz[:,i] = cross_prod.reshape(-1)   # conver 2D of shape (3,1) to 1D of shape (3,)
+            Jw[:,i] = Z_i_0.reshape(-1)   # conver 2D of shape (3,1) to 1D of shape (3,)
 
         jacobian = np.concatenate((Jz,Jw),axis=0)
-        return Jz.astype(np.float64)
-    
-    def _f(self, i, Z, O):
-        f = np.zeros((3,1))
-        for j in range(i,self.n):
-            f = f + np.cross(Z, O[:,[j+1]] - O[:,[j]], axis=0)
-        return f
-    
-    def _g(self, i, Z, O):
-        g = np.zeros((3,1))
-        for j in range(i+1, self.n):
-            g = g + np.cross(Z, O[:,[j+1]] - O[:,[j]], axis=0)
-        return g
+        return jacobian.astype(np.float64), Jz.astype(np.float64), Jw.astype(np.float64)
 
     def J_dot(self, theta, theta_dot, H=None):
         """ https://doi.org/10.48550/arXiv.2207.01794 """
         if H is None:
             H = self.Hessian(theta)
 
-        Jz_dot = np.zeros((3,self.n))
+        J_dot = np.zeros((6,self.n))
         
         for i in range(self.n):
-            Jz_dot[:,[i]] = H[:,:,i] @ theta_dot.reshape((self.n,1))
-        return Jz_dot.astype(np.float64)
+            J_dot[:,[i]] = H[i,:,:].T @ theta_dot[:, np.newaxis]
+        Jz_dot = J_dot[:3,:]
+        Jw_dot = J_dot[3:,:]
+        return J_dot.astype(np.float64), Jz_dot.astype(np.float64), Jw_dot.astype(np.float64)
 
     def Hessian(self, theta):
-        """ https://doi.org/10.48550/arXiv.2207.01794 """
+        """ 
+        Hessian_v = [H_1; H_2; ... ; H_6] = [(nxn)_1; (nxn)_2; ... ; (nxn)_6], where, H_i -> ith stacks of (n,n) matrix,
+        Eqn (37) from this paper - https://doi.org/10.1109/CIRA.2005.1554272
+        """    
+        H = np.zeros((self.n, self.n, 6))  #  last index in Hessian_v is stack
+
         R, O, _ = self._transformation_matrix(theta)
 
         R_n_0 = R[self.n-1,:,:]
-        O_n_0 = np.transpose(np.array([O[:,self.n-1]]))  # O_n
+        O_n_0 = O[:,[self.n-1]]
         O_E_n = self.d_nn 
-        O_E_0 = O_n_0 + np.dot(R_n_0, O_E_n)  # O_E = O_n+1
-
-        # Add end-effector coord into O matrix
-        O = np.hstack((O, O_E_0))  # [O_1, O_2, O_3, ... , O_n, O_E]
-
-        Z_1_0 = np.transpose(np.array([R[0,:,2]]))  # first Z column -> Z_1
-        Z_n_0 = np.transpose(np.array([R[-1,:,2]]))  # last Z column -> Z_n 
-
-        """ Hessian_v = [H_1; H_2; ... ; H_n] = [(3xn)_1; (3xn)_2; ... ; (3xn)_n], where, H_i -> ith stacks of (3,n) matrix """
-        Hessian_v = np.zeros((3,self.n,self.n))  #  last index in Hessian_v is stack
+        O_E_0 = O_n_0 + np.dot(R_n_0,O_E_n)
         
-        for i in range(self.n-1):
-            Z_i_0 = np.transpose(np.array([R[i,:,2]]))  # Z_{i} in base frame
-            Z_i_1_0 = np.transpose(np.array([R[i+1,:,2]]))  # Z_{i+1} in base frame
-            
-            Hessian_v[:,[i],i] = np.cross(Z_i_0, self._f(i, Z_i_0, O), axis=0) 
-            Hessian_v[:,[i+1],i] = np.cross(Z_i_0, self._f(i+1, Z_i_1_0, O), axis=0) + np.cross(Z_i_1_0, self._g(i, Z_i_0, O), axis=0)
-      
-        Hessian_v[:,[-1],-1] = np.cross(Z_n_0, self._f(i+1, Z_n_0, O), axis=0) 
-        Hessian_v[:,[0],-1] = np.cross(Z_n_0, np.cross(Z_1_0, (O_E_0 - O_n_0), axis=0), axis=0)
-        return Hessian_v.astype(np.float64)
+        for i in range(self.n):
+            Ri = R[i,:,:]
+            Z_i_0 = Ri[:,[2]]
+            for j in range(self.n):
+                Rj = R[j,:,:]
+                Z_j_0 = Rj[:,[2]]
+                O_j_0 = O[:,[j]]
+                O_E_j_0 = O_E_0 - O_j_0
+
+                if i <= j:
+                    cross_prod_j = np.cross(Z_j_0, O_E_j_0, axis=0)
+                    H_z = np.cross(Z_i_0, cross_prod_j, axis=0)
+
+                    if i != j:
+                        H_w = np.cross(Z_i_0, Z_j_0, axis=0)
+                    else:
+                        H_w = np.zeros((3,1))
+
+                    H[i,j,:] = np.concatenate((H_z.reshape(-1), H_w.reshape(-1)))
+                else:
+                    H[i,j,:] = H[j,i,:].copy()
+        return H
     
-    def manipulability_Jacobian(self, theta, J=None, H=None):
+    def manipulability_Jacobian(self, theta, J, H=None):
         """ https://doi.org/10.48550/arXiv.2207.01794 """
-        if J is None:
-            J = self.J(theta)
         if H is None:
             H = self.Hessian(theta)
 
         # Calculate the manipulability of the robot
         manipulability = np.sqrt(LA.det(J @ J.T))
 
+        row, column = J.shape
+
         J_m = np.zeros((self.n,1))
         for i in range(self.n):
-            column_1 = J @ H[:,:,i].T
+            column_1 = J @ H[i,:,:row]
             column_2 = LA.inv(J @ J.T)
             
             # Reshape into a 9x1 vector (column-wise stacking)
@@ -159,7 +159,7 @@ class Robot_KM:
 
     def FK(self, theta, theta_dot, theta_ddot, level="vel"):
         if level == "vel":
-            J = self.J(theta)
+            _,J,_ = self.J(theta)   # only linear velocity
 
             if theta_dot.ndim != 2:
                 theta_dot = theta_dot.reshape((self.n, 1))
@@ -170,8 +170,9 @@ class Robot_KM:
             return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), []
         
         if level == "acc":
-            J = self.J(theta)
-            J_dot = self.J_dot(theta, theta_dot)
+            _,J,_ = self.J(theta)   # only linear velocity
+
+            _,J_dot,_ = self.J_dot(theta, theta_dot)
 
             if theta_dot.ndim != 2:
                 theta_dot = theta_dot.reshape((self.n, 1))
@@ -195,7 +196,8 @@ class Robot_KM:
 
             We, Wc, Wv = weights_1(3, self.n, self.q_range, self.q)
 
-            Je = self.J(self.q)
+            _,Je,_ = self.J(self.q)   # only linear velocity
+
             Jn = LA.inv(Je.T @ We @ Je + Jc.T @ Wc @ Jc + Wv) @ Je.T @ We
             
             # Adaptive gain
@@ -217,7 +219,8 @@ class Robot_KM:
         if method == 3:
             Wn = np.ones((self.n, self.n))  # diagonal damping matrix
             while LA.norm(Ex) > 0.002:  # 2.0mm 
-                J = self.J(self.q)
+                _,J,_ = self.J(self.q)   # only linear velocity
+
                 J_pinv = LA.pinv(J)
                 Jm = self.manipulability_Jacobian(self.q)
 

@@ -109,7 +109,7 @@ for i in range(Xd.shape[1]-1):
     # tau = controller.impedence_control_TT_1(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Dd, Kd)
     tau = controller.impedence_control_TT_2(q, q_dot, Ex, Ex_dot, Xd_dot[:,[i]], Xd_ddot, Dd, Kd)
 
-    X_cord, Y_cord, Z_cord = robot.robot_KM.EE(q)
+    X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
 
     robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd, Ex, Ex_dot, external_force)
     
