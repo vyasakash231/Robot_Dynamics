@@ -35,7 +35,7 @@ class Linear_MPC_JointSpace:
     """
     def __init__(self, n, x_ref, N=20, state_cost=5.0, input_cost=1.0):
         self.n = n  # number of joints
-        self.h = 0.1  
+        self.h = 0.1
         self.N = N   # prediction horizon
         
         # State and input dimensions
@@ -189,7 +189,7 @@ class Linear_MPC_TaskSpace:
     """
     def __init__(self, n, x_ref, N=20, state_cost=5.0, input_cost=1.0):
         self.n = 3  # no of states in taskspace
-        self.h = 0.1
+        self.h = 0.05
         self.N = N   # prediction horizon
         
         # State and input dimensions

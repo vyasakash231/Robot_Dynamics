@@ -90,6 +90,7 @@ class Robot_KM:
         Jw_dot = J_dot[3:,:]
         return J_dot.astype(np.float64), Jz_dot.astype(np.float64), Jw_dot.astype(np.float64)
 
+    # only for Revolute joints
     def Hessian(self, theta):
         """ 
         Hessian_v = [H_1; H_2; ... ; H_6] = [(nxn)_1; (nxn)_2; ... ; (nxn)_6], where, H_i -> ith stacks of (n,n) matrix,
@@ -185,6 +186,7 @@ class Robot_KM:
             self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
             return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), Xe_ddot.astype(np.float64)      
 
+    # TODO: complete the Inverse Kinematics code
     def IK(self, Xd, X_dot, method=1):
         Ex = np.array(Xd - self.Xe, dtype=float)
 

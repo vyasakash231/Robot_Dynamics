@@ -16,7 +16,8 @@ class Robot_Dynamics:
     # TODO: Inverse Dynamics: Recursive Newton-Euler Algorithm
     # TODO: Mass Matrix: Composite Rigid Body Algorithm 
     
-    def __init__(self, kinematic_property={}, mass=[], COG_wrt_body=[], MOI_about_body_COG=[], joint_limits={}, file_name=None):
+    def __init__(self, kinematic_property={}, mass=[], COG_wrt_body=[], MOI_about_body_COG=[], 
+                 joint_limits={}, file_name=None, method="APF", obstacles=None):
         self.n = kinematic_property['dof']
         self.alpha = kinematic_property['alpha']
         self.a = kinematic_property['a']
@@ -49,6 +50,9 @@ class Robot_Dynamics:
 
         # Load the pre-computed symbolic equations
         self.equations = robot_DM.load_equations(file_name)
+
+        self.obstacles = obstacles
+        self.method = method
 
     def compute_dynamics(self, q, q_dot):
         M_args = q
@@ -171,7 +175,6 @@ class Robot_Dynamics:
     """Eqn (18) from https://doi.org/10.1109/JRA.1987.1087068"""
     def Mx(self, Mq, J):
         threshold = 1e-3
-
         Mx_inv = J @ LA.inv(Mq) @ J.T
         if abs(np.linalg.det(Mx_inv)) >= threshold:
             Mx = LA.inv(Mx_inv)

@@ -8,6 +8,7 @@ from sympy import *
 from .kinematic_controllers import Kinematic_Control
 from .mpc_controller import Linear_MPC_JointSpace, Linear_MPC_TaskSpace
 from .dmp import DMP
+from .gaussianprocess import MIMOGaussianProcess
 
 class Controller:
     def __init__(self, robot_model):
@@ -29,7 +30,11 @@ class Controller:
         self.taskspace_mpc_controller.set_joint_limits(q_min, q_max, q_dot)
 
     def start_dmp(self, no_of_DMPs, no_of_basis, run_time, K, alpha):
-        self.dmp = DMP(no_of_DMPs=no_of_DMPs, no_of_basis_func=no_of_basis, T=run_time, K=K, dt=self.robot.dt, alpha=alpha)
+        self.dmp = DMP(no_of_DMPs=no_of_DMPs, no_of_basis_func=no_of_basis, T=run_time, K=K, 
+                       dt=self.robot.dt, alpha=alpha, method=self.robot.method, obstacles=self.robot.obstacles)
+
+    def start_gp(self, input_dim, output_dim):
+        self.gp = MIMOGaussianProcess(input_dim, output_dim)
 
     def q_tilda(self, q, qd):
         """ Computes the shortest angular distance between current position (q) and desired position (qd),
@@ -73,20 +78,22 @@ class Controller:
 
         # Feed-back PD-control input
         u = - Kp @ e - Kd @ e_dot
+        q_ddot = qd_ddot[:, np.newaxis] - u
 
         # Computed Torque Control Law
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
-        tau = M @ (qd_ddot[:, np.newaxis] - u) + C + G
+        tau = M @ q_ddot + C + G
         return tau
     
     def jointspace_mpc_ctc(self, q, q_dot, qd_ddot):
         # Get desired acceleration from MPC
         state_vec = np.hstack((q, q_dot)).reshape(-1,1)  # (2*n, 1)
         u = self.jointspace_mpc_controller.compute_control(state_vec)
+        q_ddot = qd_ddot[:, np.newaxis] - u
         
         # Compute torque using CTC
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
-        tau = M @ (qd_ddot[:, np.newaxis] - u) + C + G
+        tau = M @ q_ddot + C + G
         return tau
     
     def taskspace_mpc_ctc(self, X, X_dot, q, q_dot):
@@ -164,7 +171,7 @@ class Controller:
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
         Mx = self.robot.Mx(M, J)
 
-        tau = J.T @ Mx @ Xd_ddot + G
+        tau = (J.T @ (Mx @ Xd_ddot)) + G
         return tau
     
     """https://studywolf.wordpress.com/2013/09/17/robot-control-5-controlling-in-the-null-space/"""
@@ -172,20 +179,20 @@ class Controller:
         _,J,_ = self.robot.robot_KM.J(q)    # only linear velocity
 
         """Null space control"""
-        ## Option 1 (causing Torque chattering)
-        # tau_null = -Kp @ (q - self.robot.robot_KM.q)[:, np.newaxis]  # secondary controller working to keep the arm near its joint angles default resting positions.
+        ## Option 1: causing Torque chattering
+        tau_null = -Kp @ (q - self.robot.robot_KM.q)[:, np.newaxis]  # secondary controller working to keep the arm near its joint angles default resting positions.
 
-        ## Option 2  (No Torque chattering)
-        tau_null = self.robot.robot_KM.manipulability_Jacobian(q, J)   # Manipulability Jacobian matrix
+        ## Option 2: No Torque chattering
+        # tau_null = self.robot.robot_KM.manipulability_Jacobian(q, J)   # Manipulability Jacobian matrix
         
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
-        Mx = self.robot.Mx(M, J)
+        Mx = self.robot.Mx(M, J)  # (3,3)
 
         # dynamically consistent generalized inverse
         """https://www.roboticsproceedings.org/rss07/p31.pdf"""
         J_pinv_T = Mx @ J @ LA.inv(M)
         
-        tau = J.T @ Mx @ Xd_ddot + G + (np.eye(self.robot.n) - J.T @ J_pinv_T) @ tau_null
+        tau = (J.T @ (Mx @ Xd_ddot)) + G + ((np.eye(self.robot.n) - J.T @ J_pinv_T) @ tau_null)
         return tau
 
 

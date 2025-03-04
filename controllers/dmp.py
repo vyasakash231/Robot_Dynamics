@@ -10,7 +10,7 @@ from .utils import *
 
 # DMP Explained : https://studywolf.wordpress.com/2013/11/16/dynamic-movement-primitives-part-1-the-basics/
 class DMP:
-    def __init__(self, no_of_DMPs, no_of_basis_func, dt=0.01, T=1, X_0=None, X_g=None, alpha=3, K = 1050, D = None, W=None):
+    def __init__(self, no_of_DMPs, no_of_basis_func, dt=0.01, T=1, X_0=None, X_g=None, alpha=3, K=1050, D=None, W=None, method=None, obstacles=None):
         """
         no_of_DMPs         : number of dynamic movement primitives (i.e. dimensions)
         no_of_basis_func   : number of basis functions per DMP (actually, they will be one more)
@@ -53,6 +53,17 @@ class DMP:
             W = np.zeros((self.no_of_DMPs, self.no_of_basis_func))
         self.W = W
 
+        """Define Obstacle"""
+        if obstacles is not None:
+            if method == "DS":
+                self.modulation = Modulation_2012()
+                # self.modulation = Modulation_2019()
+                self.obstacles = obstacles
+            if method == "APF":
+                self.obstacles = Obstacle_Static(obstacles, A=5.0, eta=1.0)
+        else:
+            self.obstacles = None
+
     def center_of_gaussian(self):
         self.c = np.exp(-self.cs.alpha * np.linspace(0, self.cs.run_time, self.no_of_basis_func + 1))  #  centers are exponentially spaced
 
@@ -93,7 +104,7 @@ class DMP:
         sum_psi = np.sum(psi,0)
         self.W = np.nan_to_num(f_target.T @ np.linalg.pinv((psi / sum_psi) * theta_track))
 
-    def imitate_path(self, X_des):
+    def learn_dynamics(self, X_des):
         """
         Takes in a desired trajectory and generates the set of system parameters that best realize this path.
         X_des: the desired trajectories of each DMP should be shaped [no_of_dmps, num_timesteps]
@@ -137,96 +148,6 @@ class DMP:
         # generate weights to realize f_target
         self.generate_weights(f_target, theta_track)
         self.reset_state()
-    
-    def rollout(self, tau = 1.0):
-        # Reset the state of the DMP
-        self.reset_state()
-
-        # initial conditions
-        X_track = self.X_0  # store X
-        dX_0 = 0.0 * self.X_0
-        dX_track = dX_0   # store dX
-
-        # initial basis function
-        psi = self.gaussian_basis_func(self.cs.theta)  # initially theta is 1
-
-        # initial forcing term
-        sum_psi = np.sum(psi[:,[0]])
-        if np.abs(sum_psi) <= 1e-6:  # avoid division by 0
-            f_0 = 0.0 * np.dot(self.W, psi[:,[0]])
-        else:
-            f_0 = (np.dot(self.W, psi[:,[0]]) / sum_psi) * self.cs.theta
-        
-        ddX_track = (self.K * (self.X_g - X_track[:,[-1]]) - self.D * dX_track[:,[-1]] - self.K * (self.X_g - self.X_0) * self.cs.theta + self.K * f_0)/tau   # store ddX (initial value)
-       
-        """
-        DMP 2nd order system in vector form (for 3 DOF system);
-        τ*dV = K*(X_g - X) - D*V - K*(X_g - X_0)*θ + K*f
-        τ*dX = V
-
-        In matrix form;
-            |dV_x|   |K 0 0|   |g_x - X_x|   |D 0 0|   |V_x|   |K 0 0|   |g_x - X_x0|       |K 0 0|   |f_x|
-        τ * |dV_y| = |0 K 0| * |g_y - X_y| - |0 D 0| * |V_y| - |0 K 0| * |g_y - X_y0| * θ + |0 K 0| * |f_y|       
-            |dV_z|   |0 0 K|   |g_z - X_z|   |0 0 D|   |V_z|   |0 0 K|   |g_z - X_z0|       |0 0 K|   |f_z|      
-
-            |dX_x|   |V_x|
-        τ * |dX_y| = |V_y|
-            |dX_z|   |V_z|
-
-        State-Space form for 3 DOF/No_of_DMPs system;
-        state_vector, Y = [y1, y2, y3, y4, y5, y6] = [V_x, X_x, V_y, X_y, V_z, X_z]
-        
-                |dy1|   |dV_x|         |-D -K  0  0  0  0|   |V_x|         |g_x - (g_x - X_x0)*θ + f_x|
-                |dy2|   |dX_x|         | 1  0  0  0  0  0|   |X_x|         |           0              |
-        dY_dt = |dy3| = |dV_y| = 1\τ * | 0  0 -D -K  0  0| * |V_y| + K\τ * |g_y - (g_y - X_y0)*θ + f_y| 
-                |dy4|   |dX_y|         | 0  0  1  0  0  0|   |X_y|         |           0              |
-                |dy5|   |dV_z|         | 0  0  0  0 -D -K|   |V_z|         |g_z - (g_z - X_z0)*θ + f_z|
-                |dy6|   |dX_z|         | 0  0  0  0  1  0|   |X_z|         |           0              |
-
-        dY_dt = A @ Y + B   (A-matrix must have constant coeff for DS to be linear)
-        """
-
-        # define state vector (Y)
-        Y = np.zeros((2*self.no_of_DMPs, 1))  # Y = [[0], [0], [0], [0]]
-        Y[range(0,2*self.no_of_DMPs, 2),:] = copy.deepcopy(dX_0)  # [[Vx], [0], [Vy], [0]]
-        Y[range(1,2*self.no_of_DMPs, 2),:] = copy.deepcopy(self.X_0)  # [[Vx], [x], [Vy], [y]]
-        
-        # define A-matrix
-        A = np.zeros((2*self.no_of_DMPs, 2*self.no_of_DMPs))
-        A[range(0, 2*self.no_of_DMPs, 2), range(0, 2*self.no_of_DMPs, 2)] = -self.D / tau
-        A[range(0, 2*self.no_of_DMPs, 2), range(1, 2*self.no_of_DMPs, 2)] = -self.K / tau
-        A[range(1, 2*self.no_of_DMPs, 2), range(0, 2*self.no_of_DMPs, 2)] = 1 / tau
-
-        """Run the DMP system for a single timestep"""
-        error = np.linalg.norm(Y[range(1, 2*self.no_of_DMPs, 2), :] - self.X_g)
-        while error > 0.001:
-            # update basis function
-            psi = self.gaussian_basis_func(self.cs.theta)
-            
-            # update forcing term using weights learnt while imitating given trajectory
-            sum_psi = np.sum(psi[:,[0]])
-            if np.abs(sum_psi) <= 1e-6:  # avoid division by 0
-                f = 0.0 * np.dot(self.W, psi[:,[0]])
-            else:
-                f = (np.dot(self.W, psi[:,[0]]) / sum_psi) * self.cs.theta
-
-            # define B-matrix
-            B = np.zeros((2 * self.no_of_DMPs ,1))
-            B[0::2,:] = (self.K/tau) * (self.X_g - (self.X_g - self.X_0) * self.cs.theta + f)
-
-            # solve above dynamical system using Euler-forward method / Runge-kutta 4th order / Exponential Integrators 
-            Y = rk4_step(Y,A,B,self.cs.dt)
-            
-            # extract position-X, velocity-V, acceleration data from current state vector-Y values
-            X_track = np.append(X_track, Y[1::2, :], axis=1)   # extract position data from state vector Y
-            dX_track = np.append(dX_track, Y[0::2, :], axis=1)   # extract velocity data from state vector Y
-            
-            # update error (X - X_g)
-            error = np.linalg.norm(Y[1::2, :] - self.X_g)
-            
-            self.cs.step(tau=tau)  # update theta
-            ddX_track = np.append(ddX_track, (self.K * (self.X_g - X_track[:,[-1]]) - self.D * dX_track[:,[-1]] - self.K * (self.X_g - self.X_0) * self.cs.theta + self.K * f) / tau, axis=1)
-        return X_track, dX_track, ddX_track 
     
     def step(self, X_g, gamma, tau=1):
         """
@@ -285,7 +206,7 @@ class DMP:
         dY_dt = rk4_step(Y,A,B,gamma*self.cs.dt)
         # dY_dt = forward_euler(Y,A,B,self.cs.dt)
 
-        Y = Y + dY_dt * gamma*self.cs.dt
+        Y = Y + dY_dt * (gamma*self.cs.dt)
         
         # extract position-X, velocity-V, acceleration data from current state vector-Y values
         self.X = Y[1::2, :]   # extract position data from state vector Y
@@ -293,4 +214,149 @@ class DMP:
         
         self.cs.step(tau=tau)  # update theta
         return self.X, self.dX   
+    
+    def step_with_APF(self, X_g, gamma, tau=1):
+        """
+        DMP 2nd order system in vector form (for 3 DOF system);
+        τ*dV = K*(X_g - X) - D*V - K*(X_g - X_0)*θ + K*f
+        τ*dX = V
+
+        In matrix form;
+            |dV_x|   |K 0 0|   |g_x - X_x|   |D 0 0|   |V_x|   |K 0 0|   |g_x - X_x0|       |K 0 0|   |f_x|
+        τ * |dV_y| = |0 K 0| * |g_y - X_y| - |0 D 0| * |V_y| - |0 K 0| * |g_y - X_y0| * θ + |0 K 0| * |f_y|       
+            |dV_z|   |0 0 K|   |g_z - X_z|   |0 0 D|   |V_z|   |0 0 K|   |g_z - X_z0|       |0 0 K|   |f_z|      
+
+            |dX_x|   |V_x|
+        τ * |dX_y| = |V_y|
+            |dX_z|   |V_z|
+
+        State-Space form for 3 DOF/No_of_DMPs system;
+        state_vector, Y = [y1, y2, y3, y4, y5, y6] = [V_x, X_x, V_y, X_y, V_z, X_z]
+        
+                |dy1|   |dV_x|         |-D -K  0  0  0  0|   |V_x|         |g_x - (g_x - X_x0)*θ + f_x|
+                |dy2|   |dX_x|         | 1  0  0  0  0  0|   |X_x|         |           0              |
+        dY_dt = |dy3| = |dV_y| = 1\τ * | 0  0 -D -K  0  0| * |V_y| + K\τ * |g_y - (g_y - X_y0)*θ + f_y| 
+                |dy4|   |dX_y|         | 0  0  1  0  0  0|   |X_y|         |           0              |
+                |dy5|   |dV_z|         | 0  0  0  0 -D -K|   |V_z|         |g_z - (g_z - X_z0)*θ + f_z|
+                |dy6|   |dX_z|         | 0  0  0  0  1  0|   |X_z|         |           0              |
+
+        dY_dt = A @ Y + B   (A-matrix must have constant coeff for DS to be linear)
+        """
+
+        # define state vector (Y)
+        Y = np.zeros((2*self.no_of_DMPs, 1))  # Y = [[0], [0], [0], [0]]
+        Y[range(0,2*self.no_of_DMPs, 2),:] = copy.deepcopy(self.dX)  # [[Vx], [0], [Vy], [0]]
+        Y[range(1,2*self.no_of_DMPs, 2),:] = copy.deepcopy(self.X)  # [[Vx], [x], [Vy], [y]]
+        
+        # define A-matrix
+        A = np.zeros((2*self.no_of_DMPs, 2*self.no_of_DMPs))
+        A[range(0, 2*self.no_of_DMPs, 2), range(0, 2*self.no_of_DMPs, 2)] = -self.D / tau
+        A[range(0, 2*self.no_of_DMPs, 2), range(1, 2*self.no_of_DMPs, 2)] = -self.K / tau
+        A[range(1, 2*self.no_of_DMPs, 2), range(0, 2*self.no_of_DMPs, 2)] = 1 / tau
+
+        """Run the DMP system for a single timestep"""
+        psi = self.gaussian_basis_func(self.cs.theta)  # update basis function
+        
+        # update forcing term using weights learnt while imitating given trajectory
+        sum_psi = np.sum(psi[:,[0]])
+        if np.abs(sum_psi) <= 1e-6:  # avoid division by 0
+            f = 0.0 * np.dot(self.W, psi[:,[0]])
+        else:
+            f = (np.dot(self.W, psi[:,[0]]) / sum_psi) * self.cs.theta
+
+        # define B-matrix
+        B = np.zeros((2 * self.no_of_DMPs ,1))
+        B[0::2,:] = (self.K/tau) * (X_g - (X_g - self.X_0) * self.cs.theta + f)
+
+        if self.obstacles is not None:
+            B[0::2,:] += self.obstacles.gen_external_force(self.X) / tau 
+
+        # solve above dynamical system using Euler-forward method / Runge-kutta 4th order / Exponential Integrators 
+        dY_dt = rk4_step(Y,A,B,gamma*self.cs.dt)
+        # dY_dt = forward_euler(Y,A,B,self.cs.dt)
+
+        Y = Y + dY_dt * (gamma*self.cs.dt)
+        
+        # extract position-X, velocity-V, acceleration data from current state vector-Y values
+        self.X = Y[1::2, :]   # extract position data from state vector Y
+        self.dX = Y[0::2, :] # extract velocity data from state vector Y
+        
+        self.cs.step(tau=tau)  # update theta
+        return self.X, self.dX   
+
+    def step_with_DS_2012(self, X_g, gamma, tau=1):
+        """
+        DMP 2nd order system in vector form (for 3 DOF system);
+        τ*dV = K*(X_g - X) - D*[M*V] - K*(X_g - X_0)*θ + K*f
+        τ*dX = M*V
+
+        In matrix form;
+            |dV_x|   |K 0 0|   |g_x - X_x|   |D 0 0|    /|M_11 M_12 M_13|   |V_x|\    |K 0 0|   |g_x - X_x0|       |K 0 0|   |f_x|
+        τ * |dV_y| = |0 K 0| * |g_y - X_y| - |0 D 0| * | |M_21 M_22 M_23| * |V_y| | - |0 K 0| * |g_y - X_y0| * θ + |0 K 0| * |f_y|       
+            |dV_z|   |0 0 K|   |g_z - X_z|   |0 0 D|    \|M_31 M_32 M_33|   |V_z|/    |0 0 K|   |g_z - X_z0|       |0 0 K|   |f_z|      
+
+            |dX_x|   |M_11 M_12 M_13|   |V_x|
+        τ * |dX_y| = |M_21 M_22 M_23| * |V_y|
+            |dX_z|   |M_31 M_32 M_33|   |V_z|
+
+        State-Space form for 3 DOF/No_of_DMPs system;
+        state_vector, Y = [y1, y2, y3, y4, y5, y6] = [V_x, X_x, V_y, X_y, V_z, X_z]
+        
+                |dy1|   |dV_x|         |-D*M_11 -K -D*M_12  0  -D*M_13  0|   |V_x|         |g_x - (g_x - X_x0)*θ + f_x|
+                |dy2|   |dX_x|         |  M_11   0   M_12   0    M_13   0|   |X_x|         |           0              |
+        dY_dt = |dy3| = |dV_y| = 1\τ * |-D*M_21  0 -D*M_22 -K  -D*M_23  0| * |V_y| + K\τ * |g_y - (g_y - X_y0)*θ + f_y| 
+                |dy4|   |dX_y|         |  M_21   0   M_22   0    M_23   0|   |X_y|         |           0              |
+                |dy5|   |dV_z|         |-D*M_31  0 -D*M32   0  -D*M_33 -K|   |V_z|         |g_z - (g_z - X_z0)*θ + f_z|
+                |dy6|   |dX_z|         |  M_31   0   M_32   0    M_33   0|   |X_z|         |           0              |
+
+        dY_dt = A @ Y + B   (A-matrix must have constant coeff for DS to be linear)
+        """
+
+        # define state vector (Y)
+        Y = np.zeros((2*self.no_of_DMPs, 1))  # Y = [[0], [0], [0], [0], [0], [0]]
+        Y[range(0,2*self.no_of_DMPs, 2),:] = copy.deepcopy(self.dX)  # [[Vx], [0], [Vy], [0], [Vz], [0]]
+        Y[range(1,2*self.no_of_DMPs, 2),:] = copy.deepcopy(self.X)  # [[Vx], [x], [Vy], [y], [Vz], [z]]
+
+        # find modulation matrix
+        M = self.modulation.compute_modulation_matrix(self.X, self.dX, self.obstacles)
+        
+        # define A-matrix
+        A = np.zeros((2*self.no_of_DMPs, 2*self.no_of_DMPs))
+
+        # Using index lists
+        rows_1 = cols_1 = [0, 2, 4]
+        A[np.ix_(rows_1, cols_1)] = (-self.D / tau) * M
+
+        rows_2 = [1, 3, 5]
+        cols_2 = [0, 2, 4]
+        A[np.ix_(rows_2, cols_2)] = (1 / tau) * M
+
+        A[range(0, 2*self.no_of_DMPs, 2), range(1, 2*self.no_of_DMPs, 2)] = -self.K / tau
+
+        """Run the DMP system for a single timestep"""
+        psi = self.gaussian_basis_func(self.cs.theta)  # update basis function
+        
+        # update forcing term using weights learnt while imitating given trajectory
+        sum_psi = np.sum(psi[:,[0]])
+        if np.abs(sum_psi) <= 1e-6:  # avoid division by 0
+            f = 0.0 * np.dot(self.W, psi[:,[0]])
+        else:
+            f = (np.dot(self.W, psi[:,[0]]) / sum_psi) * self.cs.theta
+
+        # define B-matrix
+        B = np.zeros((2 * self.no_of_DMPs ,1))
+        B[0::2,:] = (self.K/tau) * (X_g - (X_g - self.X_0) * self.cs.theta + f)
+
+        # solve above dynamical system using Euler-forward method / Runge-kutta 4th order / Exponential Integrators 
+        dY_dt = rk4_step(Y,A,B,gamma*self.cs.dt)
+        # dY_dt = forward_euler(Y,A,B,self.cs.dt)
+
+        Y = Y + dY_dt * (gamma*self.cs.dt)
+        
+        # extract position-X, velocity-V, acceleration data from current state vector-Y values
+        self.X = Y[1::2, :]   # extract position data from state vector Y
+        self.dX = Y[0::2, :] # extract velocity data from state vector Y
+        
+        self.cs.step(tau=tau)  # update theta
+        return self.X, self.dX 
 

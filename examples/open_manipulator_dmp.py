@@ -49,8 +49,9 @@ joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
                 }
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
-robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, joint_limits=joint_limits, file_name="Open_X_manipulator")
-controller = Controller(robot)
+robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, 
+                       joint_limits=joint_limits, file_name="Open_X_manipulator")
+controller = Controller(robot)  
 
 # Robot Initial State (Joint Space)
 q = np.radians([53.0, 102.0, -106.0, -45.0])  # In radian
@@ -67,11 +68,11 @@ x_des = data['demo'].T  # (2,611)
 x_des /= 350 # convert data from mm to m
 
 # add Z-axis to data
-x_des = np.vstack((x_des, np.linspace(0.1, 0.18, x_des.shape[1])))  # (3,611)
+x_des = np.vstack((x_des, np.linspace(0.1, 0.2, x_des.shape[1])))  # (3,611)
 x_des[0,:] += 0.2
 x_des[1,:] += 0.1
 
-T = 5
+T = 4
 t = np.linspace(0, T, x_des.shape[1])  # demo trajectory timing
 dt = t[1] - t[0]
 
@@ -79,12 +80,11 @@ pos_interp = scipy.interpolate.interp1d(t, x_des, axis=1)
 Xd = pos_interp(t)
 
 Xd_dot = np.array([smooth_velocity(Xd[i], t) for i in range(Xd.shape[0])])
-Xd_dot[:,[0]] = np.zeros((3,1))
 
 # gain matrix
-Kp_ts = np.diag([100, 100, 100])
-Kd_ts = np.diag([10, 10, 10])
-Kp_js = np.diag([5, 5, 5, 5]) 
+Kp_ts = np.diag([50, 50, 50])
+Kd_ts = np.diag([8, 8, 8])
+Kp_js = np.diag([3, 3, 3, 3]) 
 
 # Start plotting tool
 robot.plot_start(dt, t)
@@ -93,10 +93,10 @@ robot.plot_start(dt, t)
 robot.robot_KM.initial_state(q)
 
 # Start DMPS
-controller.start_dmp(no_of_DMPs=Xd.shape[0], no_of_basis=50, run_time=T, K=100, alpha=3.0)
+controller.start_dmp(no_of_DMPs=Xd.shape[0], no_of_basis=30, run_time=T, K=100, alpha=3.0)
 
 # learn Weights based on Demo
-controller.dmp.imitate_path(X_des=Xd)
+controller.dmp.learn_dynamics(X_des=Xd)
 controller.dmp.reset_state()
 
 gamma = 1
@@ -118,11 +118,11 @@ for i in range(t.shape[0]-1):
     # Feed-forward Control
     # tau = controller.torque_control_2(Xr_ddot, q, q_dot)   # without null-space torque
     tau = controller.torque_control_3(Xr_ddot, q, q_dot, Kp_js)    # with null-space torque
-    
+
     # Forward Kinematics
     X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
     robot.memory(X_cord, Y_cord, Z_cord, None, tau, Xd[:,[i]], Ex, Ex_dot, None, Xdmp)
-
+    
     """
     If the plant/Robot state drifts away from the state of the DMPs, we have to slow down the execution speed of the 
     DMP to allow the plant time to catch up. To do this we just have to multiply the DMP timestep dt with gamma
@@ -130,6 +130,5 @@ for i in range(t.shape[0]-1):
     gamma = 1 / (1 + LA.norm(Xdmp - Xe))
 
     # Robot Joint acceleration
-    q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward")  # forward_int = None / euler_forward / rk4
-    
+    q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward")  # forward_int = None / euler_forward / rk4  
 robot.show_plot_dmp()

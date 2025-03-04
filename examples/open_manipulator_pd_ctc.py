@@ -9,38 +9,12 @@ import scipy.linalg
 # from my_DMP.dmp import DMP
 from robot_model import Robot_Dynamics
 from controllers import Controller
+from utils import *
 
 
-def quantic_trajectory_vector(n, t_0, t_f, dt, q_0, q_f, v_0, v_f, alpha_0, alpha_f):
-    # Matrix A remains the same
-    A = np.array([[1, t_0, t_0**2, t_0**3, t_0**4, t_0**5],
-                  [0, 1, 2*t_0, 3*t_0**2, 4*t_0**3, 5*t_0**4],
-                  [0, 0, 2, 6*t_0, 12*t_0**2, 20*t_0**3],
-                  [1, t_f, t_f**2, t_f**3, t_f**4, t_f**5],
-                  [0, 1, 2*t_f, 3*t_f**2, 4*t_f**3, 5*t_f**4],
-                  [0, 0, 2, 6*t_f, 12*t_f**2, 20*t_f**3]])
-    
-    # Time array
-    t = np.arange(t_0, t_f, dt)
-    
-    # Initialize arrays for position, velocity, and acceleration
-    q = np.zeros((n, len(t)))
-    dq = np.zeros((n, len(t)))
-    ddq = np.zeros((n, len(t)))
-    
-    # Solve for each dimension independently
-    for i in range(n):
-        # Vector b for each dimension
-        b = np.array([q_0[i], v_0[i], alpha_0[i], q_f[i], v_f[i], alpha_f[i]])
-        
-        # Solve Ax = b
-        x = np.linalg.solve(A, b)
-        
-        # Compute position, velocity, and acceleration
-        q[i, :] = x[0] + x[1]*t + x[2]*t**2 + x[3]*t**3 + x[4]*t**4 + x[5]*t**5
-        dq[i, :] = x[1] + 2*x[2]*t + 3*x[3]*t**2 + 4*x[4]*t**3 + 5*x[5]*t**4
-        ddq[i, :] = 2*x[2] + 6*x[3]*t + 12*x[4]*t**2 + 20*x[5]*t**3
-    return t, q, dq, ddq
+def smooth_velocity(pos, t, smoothing_factor=1.0):
+    spline = scipy.interpolate.UnivariateSpline(t, pos, s=smoothing_factor)
+    return spline.derivative()(t)
 
 # --------------------------------------------- Open Manipulator -------------------------------------------- #
 
@@ -85,8 +59,16 @@ q0_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
 
 # Generate Joint Referance Trajectory
-dt = 0.01
-t, qd, qd_dot, qd_ddot = quantic_trajectory_vector(n, 0, 10.0, dt, q0, q_goal, q0_dot, q0_dot, q0_ddot, q0_ddot)
+# dt = 0.01
+# t, qd, qd_dot, qd_ddot = quantic_trajectory_vector(n, 0, 10.0, dt, q0, q_goal, q0_dot, q0_dot, q0_ddot, q0_ddot)
+
+data = np.load('../data/'+'/'+str('example_q')+'.npz')
+data = data["data"]
+qd, qd_dot, qd_ddot = data[1:,:4].T, data[1:,4:8].T, data[1:,8:].T
+
+T = 5
+t = np.linspace(0, T, qd.shape[1])  # demo trajectory timing
+dt = t[1] - t[0]
 
 # gain matrix
 Kp = np.diag([200, 200, 200, 200])

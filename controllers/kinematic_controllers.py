@@ -22,7 +22,15 @@ class Kinematic_Control:
         Ex = Xdmp - Xe
         Ex_dot = Xdmp_dot - Xe_dot
 
-        Xd_ddot = Kp @ Ex + Kd @ Ex_dot
+        Xd_ddot = Kp @ Ex + Kd @ Ex_dot 
+        return Xd_ddot
+    
+    def pd_gp(self, Xgp, Xgp_dot, Xe, Xe_dot, Kp, Kd):
+        # PD Control Law
+        Ex = Xgp - Xe
+        Ex_dot = Xgp_dot - Xe_dot
+
+        Xd_ddot = Kp @ Ex + Kd @ Ex_dot 
         return Xd_ddot
 
     """Simplified Acceleration-based Control Variation 1 (With Null Space Pre-multiplication of M)"""
