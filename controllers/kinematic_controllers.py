@@ -1,12 +1,17 @@
 import os
 import sys
 import numpy as np
+import numpy.linalg as LA
 from math import *
 
 class Kinematic_Control:
     def __init__(self, robot_model):
         self.robot = robot_model
         self.qr_dot_t1 = np.zeros(self.robot.n)
+
+    def pseudo_inverse(self, J):
+        J_inv = J.T @ LA.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
+        return J_inv
 
     def damped_least_square_with_JLA_1(self, Xd, X_dot):
         q = self.robot.robot_KM.IK(Xd, X_dot, method=1)
@@ -50,8 +55,7 @@ class Kinematic_Control:
                     del_g = Kw * (q - q0)  => J_m
         """
         Kw = np.eye(self.robot.n)
-        J_m = Kw @ (q - self.robot.robot_KM.q)[:, np.newaxis]
-        
+        J_m = Kw @ (q - self.robot.q)[:, np.newaxis]
 
         # jacobian_dot matrix
         _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot, H)    # J_dot, Jv_dot, Jw_dot
@@ -70,11 +74,11 @@ class Kinematic_Control:
         qr_ddot = qr_ddot.reshape(-1)
 
         # Numerical Differentation
-        # self.robot.robot_KM.qr_dot = self.robot.robot_KM.qr_dot + qr_ddot * self.robot.dt  # In radians/s
+        # self.robot.qr_dot = self.robot.qr_dot + qr_ddot * self.robot.dt  # In radians/s
 
         # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * self.robot.dt  # In radians
-        return self.robot.robot_KM.qr.astype(np.float64), qr_ddot.astype(np.float64)
+        self.robot.qr = self.robot.qr + self.robot.qr_dot * self.robot.dt  # In radians
+        return self.robot.qr.astype(np.float64), qr_ddot.astype(np.float64)
         
     """Simplified Acceleration-based Control Variation 2 (Without Null Space Pre-multiplication of M)"""
     def acceleration_based_control_2(self, q, q_dot, Ex, Ex_dot, Xd_ddot, Kp_ts, Kd_ts):
@@ -97,9 +101,9 @@ class Kinematic_Control:
         qr_ddot = qr_ddot.reshape(-1)
 
         # Numerical Differentation
-        self.robot.robot_KM.qr_dot = self.robot.robot_KM.qr_dot + qr_ddot * self.robot.dt  # In radians/s
+        self.robot.qr_dot = self.robot.qr_dot + qr_ddot * self.robot.dt  # In radians/s
 
         # Numerical Differentation
-        self.robot.robot_KM.qr = self.robot.robot_KM.qr + self.robot.robot_KM.qr_dot * self.robot.dt  # In radians
-        return self.robot.robot_KM.qr.astype(np.float64), self.robot.robot_KM.qr_dot.astype(np.float64), qr_ddot.astype(np.float64)
+        self.robot.qr = self.robot.qr + self.robot.qr_dot * self.robot.dt  # In radians
+        return self.robot.qr.astype(np.float64), self.robot.qr_dot.astype(np.float64), qr_ddot.astype(np.float64)
         

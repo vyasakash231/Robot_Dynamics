@@ -19,7 +19,7 @@ class Robot_KM:
         self.q_range[:,0] = self.joint_limits["lower"]
         self.q_range[:,1] = self.joint_limits["upper"]
 
-    def _transformation_matrix(self,theta):
+    def transformation_matrix(self,theta):
         I = np.eye(4)
         R = np.zeros((self.n,3,3))
         O = np.zeros((3,self.n))
@@ -43,17 +43,17 @@ class Robot_KM:
         P_00 = P_00_home[0:3]
         return  R, O, P_00
     
-    def initial_state(self, theta):
-        self.q = theta
-        _, _, P_00 = self._transformation_matrix(theta)
-        self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
+    # def initial_state(self, theta):
+    #     self.q = theta
+    #     _, _, P_00 = self.transformation_matrix(theta)
+    #     self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
         
-        # Initial Referance State (Joint Space)
-        self.qr = np.zeros(self.n)
-        self.qr_dot = np.zeros(self.n)
+    #     # Initial Referance State (Joint Space)
+    #     self.qr = np.zeros(self.n)
+    #     self.qr_dot = np.zeros(self.n)
 
     def J(self, theta):
-        R, O, _ = self._transformation_matrix(theta)
+        R, O, _ = self.transformation_matrix(theta)
 
         R_n_0 = R[self.n-1,:,:]
         O_n_0 = O[:,[self.n-1]]
@@ -98,7 +98,7 @@ class Robot_KM:
         """    
         H = np.zeros((self.n, self.n, 6))  #  last index in Hessian_v is stack
 
-        R, O, _ = self._transformation_matrix(theta)
+        R, O, _ = self.transformation_matrix(theta)
 
         R_n_0 = R[self.n-1,:,:]
         O_n_0 = O[:,[self.n-1]]
@@ -151,7 +151,7 @@ class Robot_KM:
         return J_m
 
     def taskspace_coord(self,theta):
-        _, O, P_00 = self._transformation_matrix(theta)
+        _, O, P_00 = self.transformation_matrix(theta)
 
         X_cord = np.concatenate(([0],O[0,:],P_00[[0],0]))
         Y_cord = np.concatenate(([0],O[1,:],P_00[[1],0]))
@@ -166,7 +166,7 @@ class Robot_KM:
                 theta_dot = theta_dot.reshape((self.n, 1))
 
             Xe_dot = J @ theta_dot   # end-effector velocity
-            _, _, P_00 = self._transformation_matrix(theta)  # end-effector position
+            _, _, P_00 = self.transformation_matrix(theta)  # end-effector position
             self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
             return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), []
         
@@ -182,7 +182,7 @@ class Robot_KM:
 
             Xe_dot = J @ theta_dot    # end-effector velocity
             Xe_ddot = J @ theta_ddot + J_dot @ theta_dot    # end-effector acceleration
-            _, _, P_00 = self._transformation_matrix(theta)  # end-effector position
+            _, _, P_00 = self.transformation_matrix(theta)  # end-effector position
             self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
             return self.Xe.astype(np.float64), Xe_dot.astype(np.float64), Xe_ddot.astype(np.float64)      
 

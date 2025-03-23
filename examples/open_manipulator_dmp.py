@@ -90,7 +90,7 @@ Kp_js = np.diag([3, 3, 3, 3])
 robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 # Start DMPS
 controller.start_dmp(no_of_DMPs=Xd.shape[0], no_of_basis=30, run_time=T, K=100, alpha=3.0)

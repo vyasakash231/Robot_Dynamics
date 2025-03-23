@@ -43,7 +43,7 @@ MOI_about_body_CG = []  # MOI of the link about COG
 
 joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
                 'lower': np.radians([-180, -117, -90, -103]),
-                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180 deg/s)
+                'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
                 }
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
@@ -59,12 +59,8 @@ q0_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
 
 # Generate Joint Referance Trajectory
-# dt = 0.01
-# t, qd, qd_dot, qd_ddot = quantic_trajectory_vector(n, 0, 10.0, dt, q0, q_goal, q0_dot, q0_dot, q0_ddot, q0_ddot)
-
-data = np.load('../data/'+'/'+str('example_q')+'.npz')
-data = data["data"]
-qd, qd_dot, qd_ddot = data[1:,:4].T, data[1:,4:8].T, data[1:,8:].T
+data = np.load('../data/'+str('example_q')+'.npz')
+qd, qd_dot, qd_ddot = data["q"].T, data["qd_dot"].T, data["qd_ddot"].T
 
 T = 5
 t = np.linspace(0, T, qd.shape[1])  # demo trajectory timing
@@ -80,7 +76,7 @@ robot.plot_start(dt, t)
 # Robot Initial State in Task-Space
 q = np.radians([45.0, 90.0, -90.0, -45.0])  # In radian
 q_dot = np.array([0, 0, 0, 0])  # In radian/sec
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 """This formulation essentially allows you to control the joint torques 
 in a manner that tracks the referance joint positions, velocities"""

@@ -49,20 +49,14 @@ joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
 robot = Robot_Dynamics(kinematic_property, mass, COG_wrt_body, MOI_about_body_CG, joint_limits=joint_limits, file_name="Open_X_manipulator")
 controller = Controller(robot)
 
-# Robot Initial State (Joint Space)
-q0 = np.radians([53.0, 102.0, -106.0, -45.0])  # In radian
-q0_dot = np.array([0, 0, 0, 0])  # In radian/sec
-q0_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
-
 # Robot Goal State
 q_goal = np.radians([90.0, 45.0, -45.0, 45.0])
 
 # Generate Joint Referance Trajectory
-N = 40  # prediction horizon
+N = 25  # prediction horizon
 
 data = np.load('../data/'+'/'+str('example_q')+'.npz')
-data = data["data"]
-qd, qd_dot, qd_ddot = data[1:-25,:4].T, data[1:-25,4:8].T, data[1:-25,8:].T
+qd, qd_dot, qd_ddot = data["q"].T, data["qd_dot"].T, data["qd_ddot"].T
 
 T = 5
 t = np.linspace(0, T, qd.shape[1])  # demo trajectory timing
@@ -76,13 +70,14 @@ Q_ref = np.hstack((Q_ref, repeat_column))  # repeat last column n*N times
 # Start plotting tool
 robot.plot_start(dt, t)
 
-# Robot Initial State in Task-Space
-q = np.radians([45.0, 90.0, -90.0, -45.0])  # In radian
+# Robot Initial State in Joint-Space
+# q = np.radians([45.0, 90.0, -90.0, -45.0])  # In radian
+q = np.radians([60.0, 102.0, -108.0, -40.0])  # In radian
 q_dot = np.array([0, 0, 0, 0])  # In radian/sec
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 # Start MPC
-controller.start_jointspace_mpc(Q_ref, N, state_cost=400.0, input_cost=2.0)
+controller.start_jointspace_mpc(Q_ref, N, state_cost=500.0, input_cost=2.0)
 
 """This formulation essentially allows you to control the joint torques 
 in a manner that tracks the referance joint positions, velocities"""

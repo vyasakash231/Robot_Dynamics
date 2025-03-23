@@ -36,6 +36,7 @@ MOI_about_body_CG = []  # MOI of the link about COG
 joint_limits = {'upper': np.radians([180, 90, 87.5, 114.5]),
                 'lower': np.radians([-180, -117, -90, -103]),
                 'vel_max': np.array([2.0, 2.0, 2.0, 2.0]),  # Maximum joint velocities (180deg/s)
+                'torque_rate_limit': np.array([1.0])
                 }
 
 # if you change any kinematic or dynamic parameters then delete the saved .pkl model and re-create the model 
@@ -48,8 +49,10 @@ q_dot = np.array([0, 0, 0, 0])  # In radian/sec
 q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 
 # Control Gain
-Kd = np.diag([110, 110, 110])   # Stiffness matrix
+Kd = np.diag([75, 75, 75])   # Stiffness matrix
+# Kd = np.diag([110, 110, 110])   # Stiffness matrix
 Dd = 0.5 * np.sqrt(Kd)  # Damping
+K_nullspace = np.diag([1.0, 1.0, 1.0, 1.0])  # Null space stiffness
 
 """ Trajectory tracking """
 # trajectory 
@@ -82,7 +85,7 @@ Xd_ddot = np.array([[0],[0],[0]])   # for impedence_control_TT_2
 robot.plot_start(dt)
 
 # Robot Initial State in Task-Space
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 # Joint space error
 Er = None
@@ -104,10 +107,11 @@ for i in range(Xd.shape[1]-1):
     # task space error
     Ex = Xe - Xd[:,[i]]
     Ex_dot = Xe_dot - Xd_dot[:,[i]]
-
+   
     # Feed-forward Control
-    # tau = controller.impedence_control_TT_1(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Dd, Kd)
-    tau = controller.impedence_control_TT_2(q, q_dot, Ex, Ex_dot, Xd_dot[:,[i]], Xd_ddot, Dd, Kd)
+    # tau = controller.impedance_control_TT_1(q, q_dot, Ex, Ex_dot, Xd_ddot[:,[i]], Dd, Kd)
+    # tau = controller.impedance_controlq_nullspace_TT_2(q, q_dot, Ex, Ex_dot, Xd_dot[:,[i]], Xd_ddot, Dd, Kd)
+    tau = controller.cartesian_impedance_control_1(q, q_dot, Ex, Dd, Kd, K_nullspace)
 
     X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
 

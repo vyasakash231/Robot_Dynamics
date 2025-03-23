@@ -54,6 +54,21 @@ class Robot_Dynamics:
         self.obstacles = obstacles
         self.method = method
 
+    def initial_state(self, theta):
+        self.q = theta
+        self.tau_prev = np.zeros((self.n,1))   # previous desired torque
+
+        key = 'torque_rate_limit'
+        if key in self.joint_limits:
+            self.torque_rate_limit = self.joint_limits[key]
+
+        _, _, P_00 = self.robot_KM.transformation_matrix(theta)
+        self.Xe = np.array([P_00[[0],0],P_00[[1],0],P_00[[2],0]])  # end-effector position
+        
+        # Initial Referance State (Joint Space)
+        self.qr = np.zeros(self.n)
+        self.qr_dot = np.zeros(self.n)
+
     def compute_dynamics(self, q, q_dot):
         M_args = q
         C_args = np.concatenate((q, q_dot))

@@ -99,8 +99,15 @@ class Controller:
     def taskspace_mpc_ctc(self, X, X_dot, q, q_dot):
         pass
 
+    def saturate_torque_rate(self, tau, tau_prev):
+        tau_saturated = np.zeros_like(tau)
+        for i in range(len(tau)):
+            difference = tau[i] - tau_prev[i]
+            tau_saturated[i] = tau_prev[i] + np.clip(difference, -self.robot.torque_rate_limit, self.robot.torque_rate_limit)
+        return tau_saturated    
+
     # WITHOUT contact force feedback
-    def impedence_control_static(self, q, q_dot, E, E_dot, Dd, Kd):
+    def impedance_control_static(self, q, q_dot, E, E_dot, Dd, Kd):
         """
         Impedance control is widely used in robotics, especially in applications involving physical interaction 
         with uncertain environments. It's ideal for scenarios where a robot needs to respond flexibly to forces 
@@ -116,11 +123,11 @@ class Controller:
         tau = G - J.T @ impedence_force   # Cartesian PD control with gravity cancellation
         return tau
     
-    def impedence_control_TT_1(self, q, q_dot, E, E_dot, Xd_ddot, Dd, Kd):
+    def impedance_control_TT_1(self, q, q_dot, E, E_dot, Xd_ddot, Dd, Kd):
         """Impedance control with weighted pseudo-inverse"""
         # Task Jacobian
         _,J,_ = self.robot.robot_KM.J(q)   # only linear velocity
-        J_inv = J.T @ LA.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
+        J_inv = self.KC.pseudo_inverse(J)    # pseudoinverse of the Jacobian
 
         _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot)
         M, C, _, G = self.robot.compute_dynamics(q, q_dot)
@@ -134,9 +141,9 @@ class Controller:
         return tau
     
     # Guarantee of asymptotic convergence to zero tracking error (on Xd(t)) when F=0 (no contact situation)
-    def impedence_control_TT_2(self, q, q_dot, E, E_dot, Xd_dot, Xd_ddot, Dd, Kd):
+    def impedance_control_TT_2(self, q, q_dot, E, E_dot, Xd_dot, Xd_ddot, Dd, Kd):
         _,J,_ = self.robot.robot_KM.J(q)    # only linear velocity
-        J_inv = J.T @ LA.inv(J @ J.T + 1e-6 * np.eye(J.shape[0]))    # pseudoinverse of the Jacobian
+        J_inv = self.KC.pseudo_inverse(J)   # pseudoinverse of the Jacobian
 
         _,J_dot,_ = self.robot.robot_KM.J_dot(q, q_dot)
 
@@ -147,6 +154,29 @@ class Controller:
 
         impedence_force = Dd @ E_dot + Kd @ E
         tau = M @ qd_ddot + C @ qd_dot + G - J.T @ impedence_force
+        return tau
+    
+    def cartesian_impedance_control_1(self, q, q_dot, E, Dd, Kd, K_nullspace):
+        _,J,_ = self.robot.robot_KM.J(q)
+
+        M, _, C, G = self.robot.compute_dynamics(q, q_dot)
+
+        # Nullspace control
+        J_T_inv = np.linalg.pinv(J.T)    # pseudoinverse of the Jacobian.T
+        # J_T_inv = self.KC.pseudo_inverse(J.T)    # pseudoinverse of the Jacobian.T
+        nullspace_proj = np.eye(self.robot.n) - J.T @ J_T_inv
+        q_nullspace = self.robot.q
+        
+        tau_null = nullspace_proj @ (K_nullspace @ (q - q_nullspace)[:, np.newaxis]) # - 1.0*np.sqrt(K_nullspace) @ q_dot[:, np.newaxis])
+        
+        # Classical Impedance Controller with No Inertia
+        X_dot = J @ q_dot[:,np.newaxis]
+        impedence_force = Dd @ X_dot + Kd @ E
+        tau = (C @ q_dot[:, np.newaxis]) + G - (J.T @ impedence_force) #+ tau_null
+
+        # satureated torque rate to avoid discontinuities
+        tau = self.saturate_torque_rate(tau, self.robot.tau_prev)
+        self.robot.tau_prev = tau.copy()
         return tau
     
     # (Passive) Dynamical-System based Impedence Controller
@@ -180,7 +210,8 @@ class Controller:
 
         """Null space control"""
         ## Option 1: causing Torque chattering
-        tau_null = -Kp @ (q - self.robot.robot_KM.q)[:, np.newaxis]  # secondary controller working to keep the arm near its joint angles default resting positions.
+        q_nullspace = self.robot.q
+        tau_null = -Kp @ (q - q_nullspace)[:, np.newaxis]  # secondary controller working to keep the arm near its joint angles default resting positions.
 
         ## Option 2: No Torque chattering
         # tau_null = self.robot.robot_KM.manipulability_Jacobian(q, J)   # Manipulability Jacobian matrix
@@ -191,8 +222,9 @@ class Controller:
         # dynamically consistent generalized inverse
         """https://www.roboticsproceedings.org/rss07/p31.pdf"""
         J_pinv_T = Mx @ J @ LA.inv(M)
+        nullspace_proj = np.eye(self.robot.n) - J.T @ J_pinv_T
         
-        tau = (J.T @ (Mx @ Xd_ddot)) + G + ((np.eye(self.robot.n) - J.T @ J_pinv_T) @ tau_null)
+        tau = (J.T @ (Mx @ Xd_ddot)) + G + (nullspace_proj @ tau_null)
         return tau
 
 

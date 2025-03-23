@@ -56,7 +56,7 @@ dt = 0.005
 robot.plot_start(dt)
 
 # Robot Initial State in Task-Space
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 Er = None # Joint space error
 i = 0
@@ -65,8 +65,8 @@ i = 0
 # Simulation loop
 while True:   
     external_force = np.array([[0], [0], [0]])
-    # if i > 160 and i < 200:
-    #     external_force = np.array([[0], [0], [2.4]])
+    if i > 160 and i < 200:
+        external_force = np.array([[0], [0], [2.4]])
     # if i > 200 and i < 230:
     #     external_force = np.array([[0], [1.5], [0]])
     # if i > 255 and i < 290:
@@ -77,10 +77,10 @@ while True:
     
     # task space error
     Ex = Xe - Xd
-    Ex_dot = Xe_dot - Xd_dot
+    Ex_dot = Xe_dot #- Xd_dot
 
     # Feed-forward Control
-    tau = controller.impedence_control_static(q, q_dot, Ex, Ex_dot, Dd, Kd)
+    tau = controller.impedance_control_static(q, q_dot, Ex, Ex_dot, Dd, Kd)
 
     X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
 

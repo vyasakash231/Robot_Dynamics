@@ -74,12 +74,6 @@ dt = t[1] - t[0]
 pos_interp = scipy.interpolate.interp1d(t, x_des, axis=1)
 Xd = pos_interp(t)
 
-# Apply Savitzky-Golay filter to each dimension
-# window_length = 51  # Must be odd; adjust based on your data
-# poly_order = 3  # Adjust based on your data
-# Xd_dot = np.array([savgol_filter(Xd[i], window_length, poly_order, deriv=1, delta=dt) for i in range(Xd.shape[0])])
-# Xd_dot[:,[0]] =  np.zeros((3,1))
-
 Xd_dot = np.array([smooth_velocity(Xd[i], t) for i in range(Xd.shape[0])])
 Xd_dot[:,[0]] = np.zeros((3,1))
 
@@ -87,7 +81,7 @@ Xd_dot[:,[0]] = np.zeros((3,1))
 robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 """ This formulation essentially allows you to control the joint torques 
 in a manner that tracks the referance joint positions, velocities """

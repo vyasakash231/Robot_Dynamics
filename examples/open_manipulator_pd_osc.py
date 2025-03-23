@@ -86,7 +86,7 @@ Xd_dot[:,[0]] = np.zeros((3,1))
 robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 """ This formulation essentially allows you to control the joint torques 
 in a manner that tracks the referance joint positions, velocities """

@@ -85,7 +85,7 @@ Xd_ddot = np.array([savgol_filter(Xd_dot[i], window_length, poly_order, deriv=1,
 robot.plot_start(dt, t)
 
 # Robot Initial State in Task-Space
-robot.robot_KM.initial_state(q)
+robot.initial_state(q)
 
 """This formulation is from `Operational Space Control: A Theoretical and Empirical Comparison` section 3.2.2"""
 # Simulation loop
