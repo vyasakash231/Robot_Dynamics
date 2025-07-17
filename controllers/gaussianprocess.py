@@ -42,7 +42,7 @@ class MIMOGaussianProcess:
         self.hyperparams = {
             'l': 1.0,           # Length scale
             'sigma_f': 1.0,     # Signal variance
-            'sigma_n': 1e-6    # Noise standard deviation
+            'sigma_n': 1e-6    # Noise standard deviation / Noise level
         }
         
     def set_training_data(self, X_train, Y_train):
@@ -451,7 +451,7 @@ if __name__ == "__main__":
     t = np.linspace(0, T, X_train.shape[0])  # demo trajectory timing
     dt = t[1] - t[0]
 
-    X_incremental = (X_train[1:] - X_train[:-1])/dt
+    X_incremental = X_train[1:] - X_train[:-1]
     X_states = X_train[:-1]
 
     # X_dot = np.zeros((len(X_train), 2))
@@ -469,8 +469,8 @@ if __name__ == "__main__":
     # optimized_params = gp.optimize_hyperparameters(n_restarts=5)
     
     # Generate test points
-    x_grid = np.linspace(np.min(X_train[:, 0]-10), np.max(X_train[:, 0]+10), 60)
-    y_grid = np.linspace(np.min(X_train[:, 1]-10), np.max(X_train[:, 1]+10), 60)
+    x_grid = np.linspace(np.min(X_train[:, 0]-10), np.max(X_train[:, 0]+10), 50)
+    y_grid = np.linspace(np.min(X_train[:, 1]-10), np.max(X_train[:, 1]+10), 50)
     dataXX, dataYY = np.meshgrid(x_grid, y_grid)
     X_test = np.column_stack((dataXX.ravel(), dataYY.ravel()))
     
@@ -487,8 +487,8 @@ if __name__ == "__main__":
     plt.ylim([-30, 40])
 
 
-    # kernel = C(constant_value=np.sqrt(0.1)) * Matern(1*np.ones(2), nu=2.5) + WhiteKernel(noise_level=1e-2)
-    kernel = Matern(1*np.ones(2), nu=2.5) + WhiteKernel(noise_level=1e-2)
+    kernel = C(constant_value=np.sqrt(0.1)) * Matern(1*np.ones(2), nu=2.5) + WhiteKernel(noise_level=1e-2)
+    # kernel = Matern(1*np.ones(2), nu=2.5) + WhiteKernel(noise_level=1e-2)
     GP = GaussianProcessRegressor(kernel=kernel, alpha=1e-10, n_restarts_optimizer=5)
     
     GP.fit(X_states, X_incremental)

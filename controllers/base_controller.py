@@ -123,6 +123,16 @@ class Controller:
         tau = G - J.T @ impedence_force   # Cartesian PD control with gravity cancellation
         return tau
     
+    def impedance_control_setpoint(self, q, q_dot, E, X_dot, Dd, Kd):
+        _,J,_ = self.robot.robot_KM.J(q)
+
+        M, C_vec, _, G = self.robot.compute_dynamics(q, q_dot)
+       
+        # Classical Impedance Controller with No Inertia
+        impedence_force = Dd @ X_dot + Kd @ E
+        tau = G - J.T @ impedence_force   # Cartesian PD control with gravity cancellation
+        return tau        
+    
     def impedance_control_TT_1(self, q, q_dot, E, E_dot, Xd_ddot, Dd, Kd):
         """Impedance control with weighted pseudo-inverse"""
         # Task Jacobian

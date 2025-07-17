@@ -48,9 +48,8 @@ q_ddot = np.array([0, 0, 0, 0])  # In radian/sec2
 Kd = np.diag([10, 10, 10])   # Stiffness matrix
 Dd = 2*np.sqrt(Kd)   # Damping matrix
 
-Xd = np.array([[0.107163954125662], [0.143778624114491], [0.101078995781214]])
-Xd_dot = np.array([[0], [0], [0]])
-dt = 0.005
+Xd = np.array([[0.15], [0.05], [0.18]])
+dt = 0.01
 
 # Start plotting tool
 robot.plot_start(dt)
@@ -65,8 +64,8 @@ i = 0
 # Simulation loop
 while True:   
     external_force = np.array([[0], [0], [0]])
-    if i > 160 and i < 200:
-        external_force = np.array([[0], [0], [2.4]])
+    # if i > 160 and i < 200:
+    #     external_force = np.array([[0], [0], [2.4]])
     # if i > 200 and i < 230:
     #     external_force = np.array([[0], [1.5], [0]])
     # if i > 255 and i < 290:
@@ -77,14 +76,13 @@ while True:
     
     # task space error
     Ex = Xe - Xd
-    Ex_dot = Xe_dot - Xd_dot
 
     # Feed-forward Control
-    tau = controller.impedance_control_static(q, q_dot, Ex, Ex_dot, Dd, Kd)
+    tau = controller.impedance_control_setpoint(q, q_dot, Ex, Xe_dot, Dd, Kd)
 
     X_cord, Y_cord, Z_cord = robot.robot_KM.taskspace_coord(q)
 
-    robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd, Ex, Ex_dot, external_force)
+    robot.memory(X_cord, Y_cord, Z_cord, Er, tau, Xd, Ex, None, external_force)
 
     # Robot Joint acceleration
     q, q_dot, q_ddot = robot.forward_dynamics(q, q_dot, tau, forward_int="euler_forward", ext_force=external_force)  # forward_int = None / euler_forward / rk4
