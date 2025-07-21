@@ -17,7 +17,7 @@ class Robot_Dynamics:
     # TODO: Mass Matrix: Composite Rigid Body Algorithm 
     
     def __init__(self, kinematic_property={}, mass=[], COG_wrt_body=[], MOI_about_body_COG=[], 
-                 joint_limits={}, file_name=None, method="APF", obstacles=None):
+                 joint_limits={}, gravity_axis=[], file_name=None, method="APF", obstacles=None):
         self.n = kinematic_property['dof']
         self.alpha = kinematic_property['alpha']
         self.a = kinematic_property['a']
@@ -37,14 +37,14 @@ class Robot_Dynamics:
         self.robot_KM = Robot_KM(self.n, self.alpha, self.a, self.d, self.d_nn, joint_limits)  # Numeric Kinematic Model
 
         # robot_DM = Euler_Lagrange(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Euler-Lagrange Method
-        robot_DM = RNEA(self.n, self.CG, self.MOI, self.d_nn)  # Symbolic Dynamic Model using Recursive Netwon-Euler Method
+        robot_DM = RNEA(self.n, self.CG, self.MOI, self.d_nn, gravity_axis)  # Symbolic Dynamic Model using Recursive Netwon-Euler Method
         
         # Check if the file already exists
         if os.path.exists('../models/'+file_name+'.pkl'):
             print(f"{file_name} already exists. Skipping recreation.")
         else:
             # Code to create the file and save the data
-            M_sym, C_vec_sym, C_mat_sym, G_sym = robot_DM.mcg_matrix(self.alpha, self.a, self.d, self.m)  # Symbolic Matrices
+            M_sym, C_vec_sym, C_mat_sym, G_sym = robot_DM.mcg_jointspace(self.alpha, self.a, self.d, self.m)  # Symbolic Matrices
             robot_DM.save_equations(M_sym, C_vec_sym, C_mat_sym, G_sym, file_name)  # Save Matrices
             print(f"{file_name} has been created.")
 

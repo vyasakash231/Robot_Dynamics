@@ -6,7 +6,7 @@ np.set_printoptions(suppress=True)
 from sympy import *
 
 from .kinematic_controllers import Kinematic_Control
-from .mpc_controller import Linear_MPC_JointSpace, Linear_MPC_TaskSpace
+from .mpc_controller import Linear_MPC_JointSpace
 from .dmp import DMP
 from .gaussianprocess import MIMOGaussianProcess
 
@@ -22,12 +22,12 @@ class Controller:
         q_dot = self.robot.joint_limits["vel_max"]
         self.jointspace_mpc_controller.set_joint_limits(q_min, q_max, q_dot)
 
-    def start_taskspace_mpc(self, x_ref, N, state_cost, input_cost):
-        self.taskspace_mpc_controller = Linear_MPC_TaskSpace(self.robot.n, x_ref, N, state_cost, input_cost)
-        q_min = self.robot.joint_limits["lower"]
-        q_max = self.robot.joint_limits["upper"]
-        q_dot = self.robot.joint_limits["vel_max"]
-        self.taskspace_mpc_controller.set_joint_limits(q_min, q_max, q_dot)
+    # def start_taskspace_mpc(self, x_ref, N, state_cost, input_cost):
+    #     self.taskspace_mpc_controller = Linear_MPC_TaskSpace(self.robot.n, x_ref, N, state_cost, input_cost)
+    #     q_min = self.robot.joint_limits["lower"]
+    #     q_max = self.robot.joint_limits["upper"]
+    #     q_dot = self.robot.joint_limits["vel_max"]
+    #     self.taskspace_mpc_controller.set_joint_limits(q_min, q_max, q_dot)
 
     def start_dmp(self, no_of_DMPs, no_of_basis, run_time, K, alpha):
         self.dmp = DMP(no_of_DMPs=no_of_DMPs, no_of_basis_func=no_of_basis, T=run_time, K=K, 

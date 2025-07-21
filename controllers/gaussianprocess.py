@@ -7,7 +7,7 @@ from scipy.special import gamma, kv
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Matern, WhiteKernel, ConstantKernel as C
 
-from utils import *
+from .utils import *
 
 class MIMOGaussianProcess:
     """

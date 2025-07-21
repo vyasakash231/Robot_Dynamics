@@ -11,7 +11,7 @@ from .homo_transformation import *
 
 class RNEA:
     g = symbols("g")  # gravity
-    def __init__(self, n, location_COM_wrt_body, MOI_wrt_body_CG, d_nn):
+    def __init__(self, n, location_COM_wrt_body, MOI_wrt_body_CG, d_nn, gravity_axis=[]):
         self.n = n
         self.alpha = symarray('alpha',n)
         self.a = symarray('a',n)
@@ -19,7 +19,7 @@ class RNEA:
         self.d_nn = d_nn
 
         self.mass_vec = symarray('m',n)  # mass of each link
-        self.G_vec = Matrix([[0],[RNEA.g],[0]])  # Gravity Vector
+        self.G_vec = RNEA.g * gravity_axis  # Gravity Vector
 
         self.theta_vec = [symbols(f'theta_{i}') for i in range(n)]
         self.theta_dot_vec = [symbols(f'theta_dot_{i}') for i in range(n)]  # shape -> (n,)
@@ -149,8 +149,6 @@ class RNEA:
     
     def mcg_taskspace(self):
         self.Jacobian = symbolic_Jacobian(self.n, self.alpha, self.a, self.d, self.theta_vec, self.d_nn)
-        
-
     
     def save_equations(self, M_sym, C_vec_sym, C_mat_sym, G_sym, filename='lagrangian_eqs'):
         """Save symbolic equations to a file"""
